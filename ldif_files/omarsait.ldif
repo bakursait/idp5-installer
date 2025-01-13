@@ -1,0 +1,16 @@
+# omarsait.ldif
+dn: uid=omarsait,ou=people,dc=localtest1
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: Omar Sait
+sn: Sait
+uid: omarsait
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/omarsait
+loginShell: /bin/bash
+userPassword: {SSHA}FSh6tzV97pIoVgz6sV52TNGcpGQfe/Ev
+mail: omarsait@localtest1
+description: omarsait account
+

@@ -1,0 +1,8 @@
+# idpuser.ldif
+dn: cn=idpuser,ou=system,dc=localtest1
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: idpuser
+userPassword: {SSHA}MeMkwT2rbfASkWAcOqW7OwH5YrRRYTg7
+description: Service account for Shibboleth IdP
+
