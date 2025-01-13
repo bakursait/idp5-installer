@@ -868,7 +868,7 @@ Remaining_work() {
     echo -e "\t3. Add the machine's IP and hostname to all devices in the network:"
     echo -e "\t   Steps:"
     echo -e "\t     3.1 Access \"/etc/hosts\" and add the following line:"
-    echo -e "\t         \"${IP_ADDRESS}	idp.localtest1\""
+    echo -e "\t         \"${IP_ADDRESS}	${SHIB_IDP_FQDN}\""
     echo -e "\t         where:"
     echo -e "\t           \"${IP_ADDRESS}\" is the IdP's private IP in my network, locally. -- YOURS MIGHT BE DIFFERENT. just check your IdP's IP address"
     echo -e "\t           \"${SHIB_IDP_FQDN}\" is the IdPs's Fully Qualified Domain Name."
