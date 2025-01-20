@@ -18,6 +18,9 @@ LDAP_PROPERTIES_FILE="${IDP_HOME}/conf/ldap.properties"
 LDAP_FILES_PATH="$(cd "$(dirname "$0")" && pwd)/ldif_files"
 LDAP_DC_1="idp"
 LDAP_DC_2="localtest1"
+LDAP_DC_COMPOSITE="dc=${LDAP_DC_2}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
+LDAP_ADMIN_PASSWORD='admin123'
+LDAP_IDPUSER_PASSWORD='idpuser123'
 
 # ensure you accessed as a root:
 
@@ -34,7 +37,7 @@ if [ "$ID" != "ubuntu" ] || [ "$VERSION_ID" != "22.04" ]; then
     echo "this installation works ONLY on $ID-$VERSION_ID"
     exit 1
 else
-    echo "It works. you system is $ID-$VERSION_ID"
+    echo "It works. your system is $ID-$VERSION_ID"
 fi
 
 
@@ -581,41 +584,142 @@ update_property() {
 }
 
 
-# Function to install openLDAP on Ubuntu
+
+# Function to install and configure OpenLDAP on Ubuntu
 install_openldap() {
     echo
     echo -e "\n\t-------------Installing openLDAP...-------------\n"
     echo
+
+    cat <<EOF > "${LDAP_FILES_PATH}/slapd.seed"
+slapd slapd/password1 password ${LDAP_ADMIN_PASSWORD}
+slapd slapd/password2 password ${LDAP_ADMIN_PASSWORD}
+slapd slapd/internal/adminpw password ${LDAP_ADMIN_PASSWORD}
+slapd slapd/internal/generated_adminpw password ${LDAP_ADMIN_PASSWORD}
+slapd slapd/domain string ${LDAP_DC_2}
+slapd slapd/organization string "${LDAP_DC_2}"
+slapd slapd/no_configuration boolean false
+slapd slapd/backend select MDB
+slapd slapd/purge_database boolean false
+slapd slapd/move_old_database boolean true
+slapd shared/organization string "${LDAP_DC_2}"
+EOF
+
+    echo "debconf debconf/frontend select noninteractive" | sudo debconf-set-selections
+    if ! sudo debconf-set-selections ${LDAP_FILES_PATH}/slapd.seed; then
+        echo "Failed to set debconf selections for slapd"
+        exit 1
+    fi
     apt update
     apt install -y slapd ldap-utils
-
-    # Reconfigure slapd to set up the domain and admin user
-    echo "Reconfiguring slapd, follow the prompts to set the domain, organization name, and password..."
-    dpkg-reconfigure slapd
 
     # Basic configuration for DIT and adding organizational units
     echo "Setting up DIT structure..."
     ldap_setup
 }
 
-# Function to configure DIT and sample entries
+
 ldap_setup() {
     echo
     echo -e "\n\t-------------Configure DIT and sample entries...-------------\n"
-    echo "We will setup organizations, users from ${LDAP_FILES_PATH} in our LDAP system."
+    echo "We will set up organizations and users from ${LDAP_FILES_PATH} in our LDAP system."
+
     # Create an LDIF file for organizational units
     echo "Creating organizational units..."
+    cat <<EOF > "${LDAP_FILES_PATH}/ou-structure.ldif"
+# ou-structure.ldif
+dn: ou=system,dc=${LDAP_DC_2}
+objectClass: organizationalUnit
+ou: system
 
-    # Load organizational units
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -W -f "${LDAP_FILES_PATH}/ou-structure.ldif"
+dn: ou=people,dc=${LDAP_DC_2}
+objectClass: organizationalUnit
+ou: people
 
-    # Create sample users
-    echo "Adding sample users..."
-    # Add users
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w 'akaysait1991' -f "${LDAP_FILES_PATH}/idpuser.ldif"
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w 'akaysait1991' -f "${LDAP_FILES_PATH}/alisait.ldif"
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w 'akaysait1991' -f "${LDAP_FILES_PATH}/bakursait.ldif"
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w 'akaysait1991' -f "${LDAP_FILES_PATH}/omarsait.ldif"
+dn: ou=groups,dc=${LDAP_DC_2}
+objectClass: organizationalUnit
+ou: groups
+EOF
+
+    chmod -R 755 ${LDAP_FILES_PATH}
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/ou-structure.ldif" || {
+        echo "Error: Failed to add Organizational Units to LDAP."
+        exit 1
+    }
+
+
+
+    # Add idpuser:
+    hashed_password=$(slappasswd -s "$LDAP_IDPUSER_PASSWORD")
+    cat <<EOF > "${LDAP_FILES_PATH}/idpuser.ldif"
+# idpuser.ldif
+dn: cn=idpuser,ou=system,dc=${LDAP_DC_2}
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: idpuser
+userPassword: ${hashed_password}
+description: Service account for Shibboleth IdP
+EOF
+
+    chmod -R 755 ${LDAP_FILES_PATH}
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/idpuser.ldif" || {
+        echo "Error: Failed to add user: \"idpuser\" to LDAP."
+        exit 1
+    }
+
+    
+    hashed_password_johnsmith=$(slappasswd -s "smith123")
+    cat <<EOF > "${LDAP_FILES_PATH}/johnsmith.ldif"
+# johnsmith.ldif
+dn: uid=johnsmith,ou=people,dc=${LDAP_DC_2}
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: John Smith
+sn: Smith
+uid: johnsmith
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/johnsmith
+loginShell: /bin/bash
+userPassword: ${hashed_password_johnsmith}
+mail: johnsmith@${LDAP_DC_2}
+description: John Smith account
+EOF
+
+    chmod -R 755 ${LDAP_FILES_PATH}
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/johnsmith.ldif" || {
+        echo "Error: Failed to add user: \"johnsmith\" to LDAP."
+        exit 1
+    }
+
+
+    hashed_password_jacobdan=$(slappasswd -s "dan123")
+    cat <<EOF > "${LDAP_FILES_PATH}/jacobdan.ldif"
+# jacobdan.ldif
+dn: uid=jacobdan,ou=people,dc=${LDAP_DC_2}
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: Jacob Dan
+sn: Dan
+uid: jacobdan
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/jacobdan
+loginShell: /bin/bash
+userPassword: ${hashed_password_jacobdan}
+mail: jacobdan@${LDAP_DC_2}
+description: Jacob Dan account
+EOF
+
+    chmod -R 755 ${LDAP_FILES_PATH}
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/jacobdan.ldif" || {
+        echo "Error: Failed to add user: \"jacobdan\" to LDAP."
+        exit 1
+    }
+
+    
 }
 
 
@@ -630,7 +734,7 @@ configure_shibboleth_ldap() {
 
     # Check LDAP connectivity
     echo "Checking LDAP connection..."
-    ldapsearch -x -H ldap://localhost -D "cn=idpuser,ou=system,dc=${LDAP_DC_2}" -w 'idpuser123' -b "ou=people,dc=${LDAP_DC_2}" '(uid=bakursait)'
+    ldapsearch -x -H ldap://localhost -D "cn=idpuser,ou=system,dc=${LDAP_DC_2}" -w "$LDAP_IDPUSER_PASSWORD" -b "ou=people,dc=${LDAP_DC_2}" '(uid=jacobdan)'
 
     ## Apply Solution 3 - plain LDAP ##:
     # Configure secrets.properties
