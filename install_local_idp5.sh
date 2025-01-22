@@ -12,10 +12,11 @@ SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
 
 
 # see: https://stackoverflow.com/a/39340259/5423024
-SUPPORTING_FILES_PATH="$(cd "$(dirname "$0")" && pwd)/idp5_supporting_files"
+MAIN_SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)"
+SUPPORTING_FILES_PATH="${MAIN_SCRIPT_PATH}/idp5_supporting_files"
 
+LDAP_FILES_PATH="${MAIN_SCRIPT_PATH}/ldif_files"
 LDAP_PROPERTIES_FILE="${IDP_HOME}/conf/ldap.properties"
-LDAP_FILES_PATH="$(cd "$(dirname "$0")" && pwd)/ldif_files"
 LDAP_DC_1="idp"
 LDAP_DC_2="localtest1"
 LDAP_DC_COMPOSITE="dc=${LDAP_DC_2}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
@@ -23,7 +24,6 @@ LDAP_ADMIN_PASSWORD='admin123'
 LDAP_IDPUSER_PASSWORD='idpuser123'
 
 # ensure you accessed as a root:
-
 if [ "$(id -u)" != "0" ]; then
     echo "This script must run as root" 1>&2
     exit 1
@@ -40,6 +40,18 @@ else
     echo "It works. your system is $ID-$VERSION_ID"
 fi
 
+
+if [ ! -d "${SUPPORTING_FILES_PATH}" ]; then
+    echo "Error: Directory ${SUPPORTING_FILES_PATH} does not exist."
+    exit 1
+fi
+
+if [ ! -d "${LDAP_FILES_PATH}" ]; then
+    echo "${LDAP_FILES_PATH} does not exist... creating"
+    mkdir -p "${LDAP_FILES_PATH}"
+    chown -R "$(ls -ld ${MAIN_SCRIPT_PATH}/install_local_idp5.sh | awk '{print $3}'):" "${LDAP_FILES_PATH}"
+    chmod -R 755 "${LDAP_FILES_PATH}"
+fi
 
 # check if you have internet access; otherwise stop the process:
 #...
