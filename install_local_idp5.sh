@@ -817,42 +817,7 @@ EOF
     # Check IdP status
     bash "${IDP_HOME}/bin/status.sh"
 }
-configure_eduPersonTargetedID() {
-    echo_message "Configuring eduPersonTargetedID"
-    check_root
 
-    
-    local attr_resolver_file="${IDP_HOME}/conf/attribute-resolver.xml"
-
-    # Automate XML insertion using xmlstarlet
-    if ! xmlstarlet sel -t -c "//*:AttributeDefinition[@id='eduPersonTargetedID']" "$attr_resolver_file" > /dev/null; then
-        xmlstarlet ed -L -s "/*[local-name()='AttributeResolver']" -t elem -n "AttributeDefinition" -v "" \
-            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "xsi:type" -v "SAML2NameID" \
-            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "nameIdFormat" -v "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent" \
-            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "id" -v "eduPersonTargetedID" \
-            -s "//*[local-name()='AttributeDefinition'][last()]" -t elem -n "InputDataConnector" -v "" \
-            -i "//*[local-name()='AttributeDefinition'][last()]/*[local-name()='InputDataConnector']" -t attr -n "ref" -v "computed" \
-            -i "//*[local-name()='AttributeDefinition'][last()]/*[local-name()='InputDataConnector']" -t attr -n "attributeNames" -v "computedId" \
-            "$attr_resolver_file"
-    fi
-
-    if ! xmlstarlet sel -t -c "//*:DataConnector[@id='computed']" "$attr_resolver_file" > /dev/null; then
-        xmlstarlet ed -L -s "/*[local-name()='AttributeResolver']" -t elem -n "DataConnector" -v "" \
-            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "id" -v "computed" \
-            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "xsi:type" -v "ComputedId" \
-            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "generatedAttributeID" -v "computedId" \
-            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "salt" -v "%{idp.persistentId.salt}" \
-            -s "//*[local-name()='DataConnector'][last()]" -t elem -n "InputDataConnector" -v "" \
-            -i "//*[local-name()='DataConnector'][last()]/*[local-name()='InputDataConnector']" -t attr -n "ref" -v "myLDAP" \
-            -i "//*[local-name()='DataConnector'][last()]/*[local-name()='InputDataConnector']" -t attr -n "attributeNames" -v "%{idp.persistentId.sourceAttribute}" \
-            "$attr_resolver_file"
-    fi
-
-    cp "${SUPPORTING_FILES_PATH}/eduPersonTargetedID.properties.txt" "${IDP_HOME}/conf/attributes/custom/eduPersonTargetedID.properties"
-    chown jetty:root "${IDP_HOME}/conf/attributes/custom/eduPersonTargetedID.properties"
-    restart_and_check_jetty
-    bash "${IDP_HOME}/bin/status.sh"
-}
 
 # Configure IdP Logging
 configure_idp_logging() {
