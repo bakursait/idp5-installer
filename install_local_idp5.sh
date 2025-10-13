@@ -1,94 +1,203 @@
 #!/bin/bash
 
+# --- Configuration Variables ---
 IDP_HOME="/opt/shibboleth-idp"
-IP_ADDRESS="192.168.4.120"
-LOOP_IP_ADDRESS="127.0.1.1"
-JETTY_VERSION="11.0.22"
-SHIB_IDP_VERSION="5.1.3"
-SHIB_IDP_HOSTNAME="idp.localtest1"
+JETTY_VERSION="11.0.25" # Using a recent stable version
+SHIB_IDP_VERSION="5.1.6" # As per original script
+SHIB_IDP_HOSTNAME="idp.localtest2"
 SHIB_IDP_FQDN="${SHIB_IDP_HOSTNAME}"
 SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
+JAVA_HOME_ENV='/usr/lib/jvm/java-17-amazon-corretto'
 
-
+# Using the server's actual IP is better, but for a local setup, loopback is fine.
+# The user can change this if needed.
+LOOP_IP_ADDRESS="127.0.1.1"
+IP_ADDRESS="192.168.4.220"
 
 # see: https://stackoverflow.com/a/39340259/5423024
 MAIN_SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)"
 SUPPORTING_FILES_PATH="${MAIN_SCRIPT_PATH}/idp5_supporting_files"
 
+# --- LDAP Configuration ---
 LDAP_FILES_PATH="${MAIN_SCRIPT_PATH}/ldif_files"
 LDAP_PROPERTIES_FILE="${IDP_HOME}/conf/ldap.properties"
-LDAP_DC_1="idp"
-LDAP_DC_2="localtest1"
+
+LDAP_DC_1=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $1}')    # "idp"
+LDAP_DC_2=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $NF}')       # "localtest1"
 LDAP_DC_COMPOSITE="dc=${LDAP_DC_2}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
+
 LDAP_ADMIN_PASSWORD='admin123'
 LDAP_IDPUSER_PASSWORD='idpuser123'
 
-# ensure you accessed as a root:
-if [ "$(id -u)" != "0" ]; then
-    echo "This script must run as root" 1>&2
-    exit 1
-fi
+# --- Helper Functions ---
 
-# Check if the Ubuntu version is 22.04:
-# you can source the file and use var's value
+# Function to print messages
+echo_message() {
+    echo -e "\n--- $1 ---"
+}
 
-source /etc/os-release
-if [ "$ID" != "ubuntu" ] || [ "$VERSION_ID" != "22.04" ]; then
-    echo "this installation works ONLY on $ID-$VERSION_ID"
-    exit 1
-else
-    echo "It works. your system is $ID-$VERSION_ID"
-fi
-
-
-if [ ! -d "${SUPPORTING_FILES_PATH}" ]; then
-    echo "Error: Directory ${SUPPORTING_FILES_PATH} does not exist."
-    exit 1
-fi
-
-if [ ! -d "${LDAP_FILES_PATH}" ]; then
-    echo "${LDAP_FILES_PATH} does not exist... creating"
-    mkdir -p "${LDAP_FILES_PATH}"
-    chown -R "$(ls -ld ${MAIN_SCRIPT_PATH}/install_local_idp5.sh | awk '{print $3}'):" "${LDAP_FILES_PATH}"
-    chmod -R 755 "${LDAP_FILES_PATH}"
-fi
-
-# check if you have internet access; otherwise stop the process:
-#...
+# Function to check for root privileges
+check_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "Error: This script must be run as root or with sudo"
+        echo ""
+        echo "Usage: sudo $0 --install"
+        exit 1
+    fi
+}
 
 
 
+show_usage() {
+    cat << EOF
+╔════════════════════════════════════════════════════════════════╗
+║     Shibboleth IdP v5 Automated Installer                      ║
+╚════════════════════════════════════════════════════════════════╝
 
-restart_and_check_jetty() {
-    echo "Restarting Jetty service..."
+USAGE:
+    $(basename "$0") [OPTION]
+
+OPTIONS:
+    -i, --install           Start the installation process
+    -p, --print-remaining   Print post-installation tasks (remaining work)
+    -h, --help              Show this help message
+
+EXAMPLES:
+    # Start installation
+    sudo $(basename "$0") --install
+
+    # View remaining tasks after installation
+    $(basename "$0") --print-remaining
+
+    # Show help
+    $(basename "$0") --help
+
+REQUIREMENTS:
+    - Must run with root privileges (use sudo)
+    - Ubuntu 22.04 or Debian 11+
+    - Internet connectivity
+    - Supporting files directory must exist: idp5_supporting_files/
+
+For more information, see README.md
+
+EOF
+}
+
+
+
+
+
+
+
+
+print_env_variables() {
+    check_root
+    # --- Configuration Variables ---
+    echo $IDP_HOME
+    echo $JETTY_VERSION
+    echo $SHIB_IDP_VERSION
+    echo $SHIB_IDP_HOSTNAME
+    echo $SHIB_IDP_FQDN
+    echo $SHIB_IDP_SECRETS_PROPERTIES_FILE
     
-    # Restart the Jetty service
-    if systemctl restart jetty; then
-        echo "Jetty restart command executed successfully."
+    # Using the server's actual IP is better, but for a local setup, loopback is fine.
+    # The user can change this if needed.
+    echo $LOOP_IP_ADDRESS
+    echo $IP_ADDRESS
+    
+    # see: https://stackoverflow.com/a/39340259/5423024
+    echo $MAIN_SCRIPT_PATH
+    echo $SUPPORTING_FILES_PATH
+    
+    # --- LDAP Configuration ---
+    echo $LDAP_FILES_PATH
+    echo $LDAP_PROPERTIES_FILE
+    
+    echo $LDAP_DC_1
+    echo $LDAP_DC_2
+    echo $LDAP_DC_COMPOSITE
+
+    echo $LDAP_ADMIN_PASSWORD
+    echo $LDAP_IDPUSER_PASSWORD
+}
+
+
+
+# Function to check Ubuntu version
+check_os_version() {
+    echo_message "Check OS Version, for Compatibility"
+    source /etc/os-release
+    if [[ "$ID" != "ubuntu" ]] || [[ "$VERSION_ID" != "22.04" ]]; then
+        echo "Warning: This script is tested for Ubuntu 22.04. Your version is $ID-$VERSION_ID."
     else
-        echo "Error: Failed to execute the Jetty restart command."
-        echo "Please check the service logs for details:"
-        echo "  journalctl -xeu jetty"
-        exit 1  # Exit with a failure status
+        echo "OS Check: Ubuntu 22.04 detected."
+    fi
+}
+
+check_supporting_files_exist() {
+    echo_message "Checking Supporting files Availability"
+    if [[ ! -d "${SUPPORTING_FILES_PATH}" ]]; then
+        echo "Error: Directory ${SUPPORTING_FILES_PATH} does not exist."
+        exit 1
+    else
+	echo "The directory ${SUPPORTING_FILES_PATH} has been found."
+    fi    
+}
+
+check_ldap_dir_availbility(){
+    if [ ! -d "${LDAP_FILES_PATH}" ]; then
+	echo "${LDAP_FILES_PATH} does not exist... creating"
+	mkdir -p "${LDAP_FILES_PATH}"
+	chown -R "$(ls -ld ${MAIN_SCRIPT_PATH}/install_local_idp5.sh | awk '{print $3}'):" "${LDAP_FILES_PATH}"
+	chmod -R 755 "${LDAP_FILES_PATH}"
+    fi
+}
+
+
+# Function to check for internet connectivity
+check_internet() {
+    echo_message "Checking Internet Connectivity"
+    if ! ping -c 3 8.8.8.8 > /dev/null 2>&1; then
+        echo "Error: No internet connection. Please check your network settings." >&2
+        exit 1
+    fi
+    echo "Internet connection is available."
+}
+
+# Function to restart and check Jetty service
+restart_and_check_jetty() {
+    echo_message "Restarting Jetty Service"
+    if systemctl restart jetty; then
+        echo "Jetty restart command issued."
+    else
+        echo "Error: Failed to issue Jetty restart command." >&2
+        journalctl -xeu jetty
+        exit 1
     fi
 
-    # Give the service a few seconds to settle
-    echo "Waiting for Jetty to stabilize..."
-    sleep 5
+    echo "Waiting for Jetty to initialize..."
+    sleep 10
 
-    # Check if Jetty is running
     if systemctl is-active --quiet jetty; then
         echo "Jetty is running successfully."
     else
-        echo "Error: Jetty failed to start."
-        echo "Please check the service logs for details:"
-        echo "  journalctl -xeu jetty"
-        echo "Ensure all configuration files are set correctly."
-        echo "Try restarting the service manually:"
-        echo "  systemctl restart jetty"
-        exit 1  # Exit with a failure status
+        echo "Error: Jetty failed to start after restart." >&2
+        journalctl -xeu jetty
+        exit 1
     fi
 }
+
+# Function to update a property in a file
+update_property() {
+    local property="$1"
+    local value="$2"
+    local file="$3"
+
+    # Remove existing property to avoid duplicates, then add the new one
+    sed -i "/^[#[:space:]]*${property}[[:space:]]*=.*/d" "$file"
+    echo "$property = $value" >> "$file"
+}
+
 
 # Function to request confirmation before proceeding
 request_confirmation() {
@@ -117,150 +226,141 @@ request_confirmation() {
     done
 }
 
-
-
-# Normalize spaces in /etc/hosts for checking
-normalize_hosts() {
-    sed 's/[[:blank:]]\+/ /g' /etc/hosts
-}
-
-
-update_hosts_file() {
-    echo "Updating /etc/hosts..."
-
-
-    # Define the new entry
-    HOSTS_ENTRY="${LOOP_IP_ADDRESS} ${SHIB_IDP_FQDN} ${SHIB_IDP_HOSTNAME}"
-
-
-    # Backup the current /etc/hosts
-    cp /etc/hosts /etc/hosts.bak
-
-    # Check if the loopback entry exists and replace it with the desired entry:
-    if grep -q "^${LOOP_IP_ADDRESS}" /etc/hosts; then
-	echo -e "Replacing existing loopback entry for\n ${HOSTS_ENTRY}...\n"
-	sed -i "s/^${LOOP_IP_ADDRESS}.*/${HOSTS_ENTRY}/" /etc/hosts
-    else
-	echo "Adding new hosts entry..."
-	echo "${HOSTS_ENTRY}" >> /etc/hosts
-    fi
-
-
-    # Verify Changes:
-    if grep -q "^${LOOP_IP_ADDRESS}" /etc/hosts; then
-	echo "/etc/hosts updated successfully."
-    else
-	echo "Failed to update /etc/hosts!" >&2
+# Function to exit if response ==0:
+perform_exit_on_reject_request(){
+    local result=$1
+    local function_name=$2
+    if [ "$1" -ne 0 ]; then
+	echo -e "\nExiting configuration process... -- as you did not confirm if the value exist or not; see function ${function_name}"
 	exit 1
     fi
+}
+
+
+
+
+# --- Installation Functions ---
+
+# Configure Hostname and /etc/hosts
+configure_hostname() {
+    echo_message "Configuring Hostname and /etc/hosts"
+    check_root
+
+    # Set hostname
+    if [ "$(hostname)" != "${SHIB_IDP_HOSTNAME}" ]; then
+        hostnamectl set-hostname "${SHIB_IDP_HOSTNAME}"
+        echo "Hostname set to ${SHIB_IDP_HOSTNAME}."
+    else
+        echo "Hostname is already set."
+    fi
+
+    # Update /etc/hosts
+    local hosts_entry="${LOOP_IP_ADDRESS} ${SHIB_IDP_FQDN} ${SHIB_IDP_HOSTNAME}"
+    if grep -q "^${LOOP_IP_ADDRESS}" /etc/hosts; then
+        sed -i "s/^${LOOP_IP_ADDRESS}.*/${hosts_entry}/" /etc/hosts
+        echo "/etc/hosts updated."
+    else
+        echo "${hosts_entry}" >> /etc/hosts
+        echo "Entry added to /etc/hosts."
+    fi
+}
+
+# Install package dependencies
+install_dependencies() {
+    echo_message "Installing Dependencies and Apache2 web-server"
+    check_root
     
+    apt-get update && apt-get upgrade -y --no-install-recommends
+    apt-get install -y fail2ban vim wget gnupg ca-certificates openssl ntp curl apache2 cron xmlstarlet --no-install-recommends
+    apt-get autoremove -y
 }
 
-
-# Set the hostname for the machine:
-update_hostname() {
-
-    echo "Updating hostname..."
-
-    # Get the current hostname:
-    current_hostname=$(hostname)
-
-    if [ "$current_hostname" != "${SHIB_IDP_HOSTNAME}" ]; then
-	echo "Setting hostname to ${SHIB_IDP_HOSTNAME}..."
-	hostnamectl hostname "${SHIB_IDP_HOSTNAME}"
-    else
-	echo "Host name is already set to ${SHIB_IDP_HOSTNAME}"
+# Configure JAVA_HOME environment variable
+configure_java_environment() {
+    echo_message "Configuring JAVA_HOME"
+    check_root
+    
+    if ! grep -q "^JAVA_HOME" /etc/environment; then
+        echo "JAVA_HOME=${JAVA_HOME_ENV}" >> /etc/environment
+        echo "JAVA_HOME set in /etc/environment. Please log out and log back in for it to take effect everywhere."
     fi
+    export JAVA_HOME="${JAVA_HOME_ENV}"
+    source /etc/environment
+    echo "JAVA_HOME=${JAVA_HOME}"
+    echo
 }
 
-install_dependencies(){
-    echo "Install the dependencies"
-    # step4: Placeholder for further installation steps...
-    apt update && apt-get upgrade -y --no-install-recommends
-
-    # step5: Install Dependencies
-    apt install -y fail2ban vim wget gnupg ca-certificates openssl ntp curl --no-install-recommends
-
-    #clean up the progarms from computer's harddisk that we installed
-    apt autoremove -y
-}
-
-check_java_version() {
-    if type java > /dev/null 2>&1; then
-	echo "Java is already installed. Verifying version..."
-	echo
-
-	# Capture the output of java -version
-	JAVA_VERSION=$(java -version 2>&1)
-	echo "$JAVA_VERSION"
-
-	#check for string "Corretto" in the version output:
-	if [[ "$JAVA_VERSION" == *"Corretto"* ]]; then
-	    echo "Amazon Corretto is already installed."
-	else
-	    echo "Java version installed is not Amazon Corretto. Installig Amazon Corretto..."
-	    install_amazon_corretto
-	fi
-    else
-	echo "Java is not installed. Installig Amazon Corretto..."
-	install_amazon_corretto
-    fi
-}
-
-
+# Install Amazon Corretto JDK 17
 install_amazon_corretto() {
-    # src: https://docs.aws.amazon.com/corretto/latest/corretto-17-ug/generic-linux-install.html
-    echo "Installing Amazon Corretto JDK..."
-
-    echo
-    echo "importing the Corretto public key; and register the the Correto Repos in system APT repo:"
-    echo
-    wget -O - https://apt.corretto.aws/corretto.key | sudo gpg --dearmor -o /usr/share/keyrings/corretto-keyring.gpg && echo "deb [signed-by=/usr/share/keyrings/corretto-keyring.gpg] https://apt.corretto.aws stable main" | sudo tee /etc/apt/sources.list.d/corretto.list
+    echo_message "Installing Amazon Corretto JDK 17"
+    # 1. Become ROOT
+    check_root
     
-    echo
-    echo "Install Amazon Corretto:"
-    echo
-    apt-get update; apt-get install -y java-17-amazon-corretto-jdk
+    if dpkg -l | grep -qw java-17-amazon-corretto-jdk; then
+        echo "Amazon Corretto JDK 17 is already installed."
+	java --version
+	echo
+        return
+    fi
 
-    # Check that Java is installed correctly
-    echo
-    echo "Checking the Java Version:"
-    java -version
-    echo
+    # Correct GPG key import as per HOWTO
+    mkdir -p /etc/apt/keyrings
+    # 2. Download the Public Key B04F24E3.pub:
+    # see the link, if there is any updates: https://docs.aws.amazon.com/corretto/latest/corretto-17-ug/downloads-list.html#signature
+    wget -O /tmp/B04F24E3.pub https://corretto.aws/downloads/resources/17.0.16.8.1/B04F24E3.pub
+
+    # 3. Convert Public Key into "amazon-corretto.gpg":
+    gpg --no-default-keyring --keyring /tmp/temp-keyring.gpg --import /tmp/B04F24E3.pub
+    gpg --no-default-keyring --keyring /tmp/temp-keyring.gpg --export --output /etc/apt/keyrings/amazon-corretto.gpg
+    rm -f /tmp/temp-keyring.gpg /tmp/B04F24E3.pub /tmp/temp-keyring.gpg~
+
+    # 4. Create an APT source list for Amazon Corretto:
+    echo "deb [signed-by=/etc/apt/keyrings/amazon-corretto.gpg] https://apt.corretto.aws stable main" > /etc/apt/sources.list.d/corretto.list
+
+    echo "#deb-src [signed-by=/etc/apt/keyrings/amazon-corretto.gpg] https://apt.corretto.aws stable main" >> /etc/apt/sources.list.d/amazon-corretto.list
+
+    # 5. Install Amazon Corretto:
+    apt update
+    apt install -y java-17-amazon-corretto-jdk
+
+    # 6. Check that Java is working:
+    java --version
 }
 
 
-install_jetty() {
-    # download from: https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-home/
-    echo -e "\n-------------Installing Jetty...-------------\n"
-    
 
-    echo -e "\tDownload and extract Jetty\n"
-    cd /usr/local/src
-    if [ ! -f "jetty-home-${JETTY_VERSION}.tar.gz" ]; then
-        wget https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-home/${JETTY_VERSION}/jetty-home-${JETTY_VERSION}.tar.gz
-        tar xzvf jetty-home-${JETTY_VERSION}.tar.gz
+# Install and Configure Jetty
+install_jetty() {
+    echo_message "Installing Jetty Servlet Container"
+    check_root
+    
+    if [ -d "/usr/local/src/jetty-src" ]; then
+        echo "Jetty appears to be already installed."
+	service jetty check
+        return
     fi
 
-    echo -e "\tCreate symbolic link for future updates\n"
-    ln -nsf jetty-home-${JETTY_VERSION} jetty-src
+    # 2. Download and Extract Jetty:
+    cd /usr/local/src
+    wget "https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-home/${JETTY_VERSION}/jetty-home-${JETTY_VERSION}.tar.gz"
+    tar xzvf "jetty-home-${JETTY_VERSION}.tar.gz"
 
-    echo -e "\tCreate jetty user if not exists\n"
+    # 3. Create the jetty-src folder as a symbolic link. It will be useful for future Jetty updates:
+    ln -nsf "jetty-home-${JETTY_VERSION}" jetty-src
+
+    # 4. Create the system user jetty that can run the web server (without home directory):
     if ! id "jetty" &>/dev/null; then
         useradd -r -M jetty
     fi
 
-    echo -e "\tCreate JETTY directories, subdirectories and set permissions\n"
-    mkdir -p /opt/jetty /opt/jetty/tmp /var/log/jetty /opt/jetty/logs
+    # 5. & 6. & 7.:
+    mkdir -p /opt/jetty/tmp /var/log/jetty /opt/jetty/logs
     chown -R jetty:jetty /opt/jetty /usr/local/src/jetty-src /var/log/jetty /opt/jetty/logs
 
-    echo -e "\tDownload custom Jetty configuration (start.ini from )idem.garr.it\n"
-    wget https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/jetty-conf/start.ini -O /opt/jetty/start.ini
-    chown -R jetty:jetty /opt/jetty /usr/local/src/jetty-src /var/log/jetty /opt/jetty/logs
+    # Use configuration from the official HOWTO source
+    wget "https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/start-jetty-11.ini" -O /opt/jetty/start.ini
 
-    
-
-    echo "\tConfigure /etc/default/jetty\n"
+    # 8. Configure /etc/default/jetty:
     cat > /etc/default/jetty <<EOF
 JETTY_HOME=/usr/local/src/jetty-src
 JETTY_BASE=/opt/jetty
@@ -270,376 +370,221 @@ JETTY_START_LOG=/var/log/jetty/start.log
 TMPDIR=/opt/jetty/tmp
 EOF
 
-    echo -e "\tCreate systemd service for Jetty\n" 
+    # 9. Create the service loadable from command line:
+    # Configure Jetty Service
     cd /etc/init.d
-    ln -s /usr/local/src/jetty-src/bin/jetty.sh /etc/init.d/jetty
+    ln -s /usr/local/src/jetty-src/bin/jetty.sh jetty
+    
     cp /usr/local/src/jetty-src/bin/jetty.service /etc/systemd/system/jetty.service
-
-    echo -e "\tFix PIDFile in systemd service file\n"
+    
     sed -i 's|^PIDFile=.*|PIDFile=/opt/jetty/jetty.pid|' /etc/systemd/system/jetty.service
+
+    # Fix the PIDFile parameter with the JETTY_PID path:
     systemctl daemon-reload
     systemctl enable jetty.service
 
-    echo -e "\tInstall Servlet Jakarta API API 5.0.0\n"
-    apt install libjakarta-servlet-api-java
+    # 10. Install Servlet Jakarta API and configure LogBack
+    apt-get install -y libjakarta-servlet-api-java
 
-
-    echo -e "\tConfigure LogBack for Jetty logging\n"
+    # 11. Install & configure LogBack for all Jetty logging:
     cd /opt/jetty
     java -jar /usr/local/src/jetty-src/start.jar --add-module=logging-logback
-    mkdir /opt/jetty/etc /opt/jetty/resources
-    wget "https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/jetty-conf/jetty-requestlog.xml" -O /opt/jetty/etc/jetty-requestlog.xml
-    wget "https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/jetty-conf/jetty-logging.properties" -O /opt/jetty/resources/jetty-logging.properties
+    mkdir -p /opt/jetty/etc /opt/jetty/resources
+    wget "https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/jetty-11-requestlog.xml" -O /opt/jetty/etc/jetty-requestlog.xml
+    wget "https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/jetty-11-logging.properties" -O /opt/jetty/resources/jetty-logging.properties
 
-    echo -e "Start Jetty and check status"
-    service jetty start
-    echo
-    echo
+    chown -R jetty:jetty /opt/jetty
+
+    # 12. Check if all settings are OK:
+    echo "Checking and then Starting Jetty for the first time..."
     service jetty check
-
-#    # Final check and start
-#    echo "Checking Jetty status..."
-#    if service jetty check; then
-#        echo "Jetty is running correctly."
-#    else
-#        echo "Jetty not running, attempting to start..."
-#        service jetty start
-#        if ! service jetty check; then
-#            echo "Jetty failed to start. Attempting to resolve..."
-#            rm -f /opt/jetty/jetty.pid
-#            systemctl start jetty.service
-#            if service jetty check; then
-#                echo "Jetty started successfully."
-#            else
-#                echo "Failed to start Jetty. Check logs for details."
-#            fi
-#        fi
-#    fi
+    service jetty start
+    sleep 5
+    service jetty check
 }
 
 
-#7: # Check if Shibboleth IdP is already installed
+
+# Install and Configure Shibboleth IdP
 install_shibboleth() {
-    local HOSTNAME=$(hostname -f)
-    local IDP_DIR="${IDP_HOME}"
-    local ENTITY_ID="https://${SHIB_IDP_HOSTNAME}/idp/shibboleth"
-    local SCOPE=$(echo ${SHIB_IDP_HOSTNAME} | cut -d "." -f 2-)
+    echo_message "Installing Shibboleth Identity Provider"
+    check_root
 
-    echo -e "\nInstalling Shibboleth Identity Provider...\n"
+    
+    if [ -d "${IDP_HOME}" ]; then
+        echo "Shibboleth IdP appears to be already installed."
+        return
+    fi
+    
 
-    echo -e "\tDownload and verify Shibboleth IdP version ${IDP_VERSION}\n"
+    local ENTITY_ID="https://${SHIB_IDP_FQDN}/idp/shibboleth"
+    local SCOPE=$(echo ${SHIB_IDP_FQDN} | cut -d "." -f 2-)
+
+    # 2. Download the Shibboleth Identity Provider, see the link: https://shibboleth.net/downloads/identity-provider/
     cd /usr/local/src
-    wget http://shibboleth.net/downloads/identity-provider/${SHIB_IDP_VERSION}/shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz
-
-    wget https://shibboleth.net/downloads/identity-provider/${SHIB_IDP_VERSION}/shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz.asc
-
+    wget "http://shibboleth.net/downloads/identity-provider/${SHIB_IDP_VERSION}/shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz"
+    wget "https://shibboleth.net/downloads/identity-provider/${SHIB_IDP_VERSION}/shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz.asc"
     wget https://shibboleth.net/downloads/PGP_KEYS
 
+    # 3. Validate the package downloaded:
     gpg --import /usr/local/src/PGP_KEYS
-
-    gpg --verify shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz.asc shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz
-
-    echo -e "\tExtract and install Shibboleth IdP\n"
-    tar -xzf shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz
-    cd /usr/local/src/shibboleth-identity-provider-${SHIB_IDP_VERSION}/bin
-
-    # Run the installer script with silent options
-    echo "Running installer with predefined options..."
-    ./install.sh \
-        --hostName "${HOSTNAME}" \
-        --noPrompt \
-        --targetDir "${IDP_DIR}" \
-        --entityID "${ENTITY_ID}" \
-        --scope "$SCOPE"
-
-#    bash install.sh --hostName $(#hostname -f)
-}
-
-
-fix_metadata_typo() {
-    echo
-    echo "From the v5.1.3, the installer miss a space between <md:EntityDescriptor and entityID into the ${IDP_HOME}/idp-metadata.xml. Make sure to add it before procede."
-    echo
-    METADATA_FILE="${IDP_HOME}/metadata/idp-metadata.xml"
-
-    if [ -f "$METADATA_FILE" ]; then
-        echo "Fixing typo in the IdP metadata file..."
-        # Use sed to correct the typo
-        sed -i 's|<md:EntityDescriptorentityID|<md:EntityDescriptor entityID|' "$METADATA_FILE"
-
-        # Verify the fix
-        if grep -q '<md:EntityDescriptor entityID=' "$METADATA_FILE"; then
-            echo "Typo fixed successfully in $METADATA_FILE."
-        else
-            echo "Failed to fix the typo in $METADATA_FILE!" >&2
-        fi
-    else
-        echo "Metadata file $METADATA_FILE not found!" >&2
+    if ! gpg --verify "shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz.asc" "shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz"; then
+        echo "Error: Shibboleth IdP download verification failed." >&2
         exit 1
     fi
-}
-
-
-
-fix_installed_idp_errors() {
-    fix_metadata_typo
-}
-
-
-
-# Function to create and prepare the DocumentRoot
-configure_document_root() {
-    local fqdn="${SHIB_IDP_HOSTNAME}"
-    local doc_root="/var/www/html/${fqdn}"
-    echo "Creating DocumentRoot at ${doc_root}..."
-    mkdir -p "$doc_root"
-    chown -R www-data: "$doc_root"
-    echo '<h1>It Works! again :) </h1>' > "${doc_root}/index.html"
-}
-
-setup_ssl_credentials() {
-    local fqdn="${SHIB_IDP_HOSTNAME}"
+    echo "Shibboleth IdP download verified."
     
-    echo "Setting up SSL credentials for ${fqdn}..."
+    # 4. extract IdP package:
+    tar -xzf "shibboleth-identity-provider-${SHIB_IDP_VERSION}.tar.gz"
+    cd "shibboleth-identity-provider-${SHIB_IDP_VERSION}/bin"
 
-    
-    # Define certificate details for non-interactive generation
-    local subj="/C=US/ST=OHIO/L=BEAVERCREEK/O=${fqdn} LTD./OU=${fqdn} LTD. IT/CN=${fqdn}"
-    sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/ssl/private/${fqdn}.key \
-    -out /etc/ssl/certs/${fqdn}.crt \
-    -subj "${subj}"
+    # 5. Install Identity Provider Shibboleth:
+    # see the link: https://shibboleth.atlassian.net/wiki/spaces/IDP5/pages/3199500577/Installation
+    ./install.sh \
+        --hostName "${SHIB_IDP_FQDN}" \
+        --noPrompt \
+        --targetDir "${IDP_HOME}" \
+        --entityID "${ENTITY_ID}" \
+        --scope "${SCOPE}"
 
-    # Set the right permissions
-    chmod 400 "/etc/ssl/private/${fqdn}.key"
-    chmod 644 "/etc/ssl/certs/${fqdn}.crt"
-    echo
-    echo "SSL credentials have been set up for ${fqdn}."
-    echo    
+    # 6.fix the IdP metadata at /opt/shibboleth-idp/idp-metadata.xml
+    # Fix for specific version typo
+    if [ "${SHIB_IDP_VERSION}" == "5.1.6" ]; then
+        fix_metadata_typo
+    fi
 }
 
-# Function to configure Apache server and create consolidated VHOST file
+fix_metadata_typo() {
+    echo_message "Applying metadata typo fix for IdP v5.1.6"
+    check_root
+    
+    local METADATA_FILE="${IDP_HOME}/metadata/idp-metadata.xml"
+    if [ -f "$METADATA_FILE" ]; then
+        sed -i 's|<md:EntityDescriptorentityID|<md:EntityDescriptor entityID|' "$METADATA_FILE"
+        echo "Typo in idp-metadata.xml fixed."
+    fi
+}
+
+# Disable Jetty Directory Indexing and Rebuild WAR
+disable_directory_indexing() {
+    echo_message "Disabling Directory Indexing"
+    check_root
+
+    
+    rm -rf "${IDP_HOME}/edit-webapp/WEB-INF"
+    mkdir -p "${IDP_HOME}/edit-webapp/WEB-INF"
+    cp "${IDP_HOME}/dist/webapp/WEB-INF/web.xml" "${IDP_HOME}/edit-webapp/WEB-INF/web.xml"
+    
+    echo "Rebuilding IdP WAR file..."
+    bash "${IDP_HOME}/bin/build.sh"
+}
+
+# Configure Jetty Context for the IdP
+configure_jetty_context() {
+    echo_message "Configuring Jetty Context for IdP"
+    check_root
+    
+    mkdir -p /opt/jetty/webapps
+    # Using the provided context file
+    #   wget "https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/idp.xml" -O /opt/jetty/webapps/idp.xml
+    cp "${SUPPORTING_FILES_PATH}/idp_jetty_context.xml" /opt/jetty/webapps/idp.xml
+
+    cd /opt/shibboleth-idp
+    chown -R jetty:jetty "${IDP_HOME}/logs" "${IDP_HOME}/metadata" "${IDP_HOME}/credentials" "${IDP_HOME}/conf" "${IDP_HOME}/war"
+    
+    restart_and_check_jetty
+}
+
+
+
+
+
+# Configure Apache as a Reverse Proxy
 configure_apache() {
-    local fqdn="${SHIB_IDP_HOSTNAME}"
-    echo "Configuring Apache Web Server..."
+    echo_message "Configuring Apache as Reverse Proxy"
+    check_root
+
+    
+    # Create DocumentRoot
+    local doc_root="/var/www/html/${SHIB_IDP_FQDN}"
+
+    # 2. Create the DocumentRoot:
+    mkdir -p "${doc_root}"
+    chown -R www-data: "${doc_root}"
+    echo '<h1>Shibboleth IdP is running!</h1>' > "${doc_root}/index.html"
+
+    # 3. Generate Self-Signed SSL Certificate
+    local subj="/C=US/ST=Local/L=City/O=Local Org/OU=IT/CN=${SHIB_IDP_FQDN}"
+    openssl req -x509 -nodes -days 3650 -newkey rsa:4096 \
+        -keyout "/etc/ssl/private/${SHIB_IDP_FQDN}.key" \
+        -out "/etc/ssl/certs/${SHIB_IDP_FQDN}.crt" \
+        -subj "${subj}"
+
+    # 4. Configure the right privileges for the SSL Certificate and Key used by HTTPS:
+    chmod 400 "/etc/ssl/private/${SHIB_IDP_FQDN}.key"
+    chmod 644 "/etc/ssl/certs/${SHIB_IDP_FQDN}.crt"
+
+    
+    # 5. Enable required Apache modules
     a2enmod proxy_http ssl headers alias include negotiation
 
-    # Disable default sites
-    a2dissite 000-default.conf default-ssl
-
-    # Create consolidated VHOST file for HTTP and HTTPS
-    cat > /etc/apache2/sites-available/${fqdn}.conf <<EOF
-<VirtualHost *:80>
-    ServerName $fqdn
-    Redirect permanent / https://$fqdn/
-</VirtualHost>
-
-<VirtualHost *:443>
-    ServerName $fqdn
-    DocumentRoot /var/www/html/$fqdn
-
-    SSLEngine on
-    SSLCertificateFile /etc/ssl/certs/$fqdn.crt
-    SSLCertificateKeyFile /etc/ssl/private/$fqdn.key
-
-    <Directory /var/www/html/$fqdn>
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
-EOF
-
-    # Enable the site
-    a2ensite ${fqdn}.conf
-    systemctl restart apache2.service
-    echo "Apache configuration complete."
-}
-
-
-
-main_apache_configuration_method() {
-    configure_document_root
-    setup_ssl_credentials
-    configure_apache
-}
-
-
-
-# Function to disable Jetty directory indexing
-disable_directory_indexing() {
-    echo -e "\nDisabling Jetty directory indexing...\n"
-
-
-    # Check if the directory exists and delete it if it does
-    if [ -d "$IDP_HOME/edit-webapp/WEB-INF" ]; then
-        echo "Existing WEB-INF directory found. Deleting..."
-        rm -rf $IDP_HOME/edit-webapp/WEB-INF
-    fi
-
-    # Create the necessary directory
-    echo "Creating new WEB-INF directory..."
-    mkdir -p $IDP_HOME/edit-webapp/WEB-INF
-
-    # Copy the web.xml to the editable directory
-    echo "Copying web.xml to the editable directory..."
-    cp "${IDP_HOME}/dist/webapp/WEB-INF/web.xml" "${IDP_HOME}/edit-webapp/WEB-INF/web.xml"
-
-    # Rebuild IdP war file
-    echo "Rebuilding IdP war file..."
-    bash $IDP_HOME/bin/build.sh
-
-    echo "Directory indexing disabled."
-}
-
-
-
-
-# Function to configure Jetty Context Descriptor for Shibboleth IdP
-configure_jetty_context() {
-    echo -e "\n-------------Configuring Jetty Context Descriptor for IdP...-------------\n"
-
-    # Ensure the webapps directory exists
-    mkdir -p /opt/jetty/webapps
-
-    # Download and place the IdP context file
-    wget "https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/jetty-conf/idp.xml" -O /opt/jetty/webapps/idp.xml
-
-    # Make the jetty user owner of important IdP directories
-    echo "Setting ownership for IdP directories..."
-    cd "${IDP_HOME}"
-    chown -R jetty "${IDP_HOME}/logs" "${IDP_HOME}/metadata" "${IDP_HOME}/credentials" "${IDP_HOME}/conf" "${IDP_HOME}/war"
-
-    # Restart Jetty to apply changes
-    echo "Restarting Jetty to apply changes..."
-    service jetty restart
-    systemctl restart jetty.service
-    echo "Jetty has been configured and restarted."
-}
-
-
-
-configure_apache_as_reverse_proxy(){
-    echo -e "\n-------------Configuring Apache2 as a reverse proxy for Jetty...-------------\n"
-    # Download and place the Apache configuration file
+    # Use the provided Apache configuration template
+    # wget https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/idp.example.org.conf -O /etc/apache2/sites-available/$(hostname -f).conf
+    cp "${SUPPORTING_FILES_PATH}/Apache2_as_front_end_of_Jetty_template.conf" "/etc/apache2/sites-available/${SHIB_IDP_FQDN}.conf"
+    
+    # Customize the template
     local apache_conf="/etc/apache2/sites-available/${SHIB_IDP_FQDN}.conf"
-    #wget "https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/apache-conf/idp.example.org.conf" -O "$apache_conf"
-    cp "${SUPPORTING_FILES_PATH}/Apache2_as_front_end_of_Jetty_template.conf"  "${apache_conf}"
+    sed -i "s/idp.example.org/${SHIB_IDP_FQDN}/g" "${apache_conf}"
+    sed -i "s|/var/www/html/idp.example.org|${doc_root}|g" "${apache_conf}"
+    sed -i 's|ServerAdmin admin@example.org|ServerAdmin admin@${SHIB_IDP_FQDN}|g' "${apache_conf}"
+    sed -i "s|/etc/ssl/certs/idp.example.org.crt|/etc/ssl/certs/${SHIB_IDP_FQDN}.crt|g" "${apache_conf}"
+    sed -i "s|/etc/ssl/private/idp.example.org.key|/etc/ssl/private/${SHIB_IDP_FQDN}.key|g" "${apache_conf}"
 
-    # Modify the Apache configuration file
-    echo "Customizing the Apache configuration..."
-
-    sed -i "s/idp.example.org/${SHIB_IDP_FQDN}/g" "$apache_conf"
-    sed -i 's|ServerAdmin admin@example.org| ServerAdmin bakursait@gmail.com |g' "$apache_conf"
-    sed -i "s|/etc/ssl/certs/idp.example.org.crt|/etc/ssl/certs/${SHIB_IDP_FQDN}.crt|g" "$apache_conf"
-    sed -i "s|/etc/ssl/private/idp.example.org.key|/etc/ssl/private/${SHIB_IDP_FQDN}.key|g" "$apache_conf"
-    sed -i "s|#SSLCACertificateFile /etc/ssl/certs/ACME-CA.pem|SSLCACertificateFile /etc/ssl/certs/ACME-CA.pem|g" "$apache_conf"
-
-
-    # Enable the Apache virtual host
-    echo "Enabling the virtual host..."
+    # Disable default sites and enable the new IdP site
+    a2dissite 000-default.conf default-ssl.conf
     a2ensite "${SHIB_IDP_FQDN}.conf"
 
-    # Reload Apache to apply changes
-    echo "Reloading Apache2..."
-    systemctl reload apache2.service
-
-    # Verify the configuration
-    echo "Checking that IdP metadata is available..."
-    if curl -k -s --head "https://${SHIB_IDP_FQDN}/idp/shibboleth" | grep "200 OK" > /dev/null; then
-        echo "Metadata is available on https://${SHIB_IDP_FQDN}/idp/shibboleth"
-    else
-        echo "Failed to verify metadata availability. Check Apache configuration."
-    fi
-    
+    systemctl restart apache2.service
+    echo "Apache configuration is complete."
 }
 
-check_idp_storage_service(){
-    echo
-    echo -e "\n\t-------------Checking the Shibboleth IdP Storage Service configuration...-------------\n"
-    echo "We are using the default settings for Shibboleth-IdP Storage Service, please rever to the following for more inforamtion:"
-    echo 'https://github.com/ConsortiumGARR/idem-tutorials/blob/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/Debian-Ubuntu/HOWTO-Install-and-Configure-a-Shibboleth-IdP-v5.x-on-Debian-Ubuntu-Linux-with-Apache-%2B-Jetty.md#configure-shibboleth-identity-provider-storage-service'
-    echo
-    
-    # Verify and log the current storage configuration
-    echo "Current storage and encryption settings:"
-    grep 'StorageService' "${IDP_HOME}/conf/idp.properties"
-    grep 'encryption' "${IDP_HOME}/conf/relying-party.xml"
-
-    # Check the status of the Shibboleth IdP
-    echo "Checking the IdP status..."
-    bash "${IDP_HOME}/bin/status.sh"
-
-    # Log output for manual review
-    echo "Review the output and logs to ensure proper configuration and operation."
-}
-
-
-
-# Function to update or uncomment a property in ldap.properties
-update_property() {
-    local property="$1"
-    local value="$2"
-    local file="$3"
-
-#    # Ensure the file exists
-#    if [ ! -f "$file" ]; then
-#        echo "Error: File $file not found!"
-#        return 1
-#    fi
-
-    # Remove all occurrences of the property (whether commented or uncommented) to avoid duplicates
-    sed -i "/^[#[:space:]]*${property}[[:space:]]*=.*/d" "$file"
-
-    # Add the updated property
-    echo "$property = $value" >> "$file"
-    echo "Updated: $property=$value"
-}
-
-
-
-# Function to install and configure OpenLDAP on Ubuntu
+# Install and Configure OpenLDAP
 install_openldap() {
-    echo
-    echo -e "\n\t-------------Installing openLDAP...-------------\n"
-    echo
+    echo_message "Installing and Configuring OpenLDAP"
+    check_root
 
+    
+    if dpkg -l | grep -qw slapd; then
+        echo "OpenLDAP is already installed."
+        return
+    fi
+
+    # Pre-seed debconf to avoid interactive prompts
     cat <<EOF > "${LDAP_FILES_PATH}/slapd.seed"
 slapd slapd/password1 password ${LDAP_ADMIN_PASSWORD}
 slapd slapd/password2 password ${LDAP_ADMIN_PASSWORD}
-slapd slapd/internal/adminpw password ${LDAP_ADMIN_PASSWORD}
-slapd slapd/internal/generated_adminpw password ${LDAP_ADMIN_PASSWORD}
 slapd slapd/domain string ${LDAP_DC_2}
 slapd slapd/organization string "${LDAP_DC_2}"
 slapd slapd/no_configuration boolean false
 slapd slapd/backend select MDB
 slapd slapd/purge_database boolean false
-slapd slapd/move_old_database boolean true
-slapd shared/organization string "${LDAP_DC_2}"
 EOF
 
-    echo "debconf debconf/frontend select noninteractive" | sudo debconf-set-selections
-    if ! sudo debconf-set-selections ${LDAP_FILES_PATH}/slapd.seed; then
-        echo "Failed to set debconf selections for slapd"
-        exit 1
-    fi
-    apt update
-    apt install -y slapd ldap-utils
+    debconf-set-selections "${LDAP_FILES_PATH}/slapd.seed"
+    apt-get install -y slapd ldap-utils
 
-    # Basic configuration for DIT and adding organizational units
-    echo "Setting up DIT structure..."
-    ldap_setup
+    # Setup DIT structure
+    setup_ldap_dit
 }
 
+# Setup LDAP Directory Information Tree (DIT)
+setup_ldap_dit() {
+    echo_message "Setting up LDAP DIT"
+    check_root
 
-ldap_setup() {
-    echo
-    echo -e "\n\t-------------Configure DIT and sample entries...-------------\n"
-    echo "We will set up organizations and users from ${LDAP_FILES_PATH} in our LDAP system."
-
-    # Create an LDIF file for organizational units
-    echo "Creating organizational units..."
+    
+    # Create OUs
     cat <<EOF > "${LDAP_FILES_PATH}/ou-structure.ldif"
-# ou-structure.ldif
 dn: ou=system,dc=${LDAP_DC_2}
 objectClass: organizationalUnit
 ou: system
@@ -652,19 +597,11 @@ dn: ou=groups,dc=${LDAP_DC_2}
 objectClass: organizationalUnit
 ou: groups
 EOF
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/ou-structure.ldif"
 
-    chmod -R 755 ${LDAP_FILES_PATH}
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/ou-structure.ldif" || {
-        echo "Error: Failed to add Organizational Units to LDAP."
-        exit 1
-    }
-
-
-
-    # Add idpuser:
-    hashed_password=$(slappasswd -s "$LDAP_IDPUSER_PASSWORD")
+    # Add idpuser for Shibboleth
+    local hashed_password=$(slappasswd -s "$LDAP_IDPUSER_PASSWORD")
     cat <<EOF > "${LDAP_FILES_PATH}/idpuser.ldif"
-# idpuser.ldif
 dn: cn=idpuser,ou=system,dc=${LDAP_DC_2}
 objectClass: simpleSecurityObject
 objectClass: organizationalRole
@@ -672,180 +609,170 @@ cn: idpuser
 userPassword: ${hashed_password}
 description: Service account for Shibboleth IdP
 EOF
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/idpuser.ldif"
 
-    chmod -R 755 ${LDAP_FILES_PATH}
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/idpuser.ldif" || {
-        echo "Error: Failed to add user: \"idpuser\" to LDAP."
-        exit 1
-    }
-
-    
-    hashed_password_johnsmith=$(slappasswd -s "smith123")
-    cat <<EOF > "${LDAP_FILES_PATH}/johnsmith.ldif"
-# johnsmith.ldif
-dn: uid=johnsmith,ou=people,dc=${LDAP_DC_2}
-objectClass: inetOrgPerson
-objectClass: posixAccount
-objectClass: shadowAccount
-cn: John Smith
-sn: Smith
-uid: johnsmith
-uidNumber: 1001
-gidNumber: 1001
-homeDirectory: /home/johnsmith
-loginShell: /bin/bash
-userPassword: ${hashed_password_johnsmith}
-mail: johnsmith@${LDAP_DC_2}
-description: John Smith account
-EOF
-
-    chmod -R 755 ${LDAP_FILES_PATH}
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/johnsmith.ldif" || {
-        echo "Error: Failed to add user: \"johnsmith\" to LDAP."
-        exit 1
-    }
-
-
-    hashed_password_jacobdan=$(slappasswd -s "dan123")
-    cat <<EOF > "${LDAP_FILES_PATH}/jacobdan.ldif"
-# jacobdan.ldif
-dn: uid=jacobdan,ou=people,dc=${LDAP_DC_2}
-objectClass: inetOrgPerson
-objectClass: posixAccount
-objectClass: shadowAccount
-cn: Jacob Dan
-sn: Dan
-uid: jacobdan
-uidNumber: 1002
-gidNumber: 1002
-homeDirectory: /home/jacobdan
-loginShell: /bin/bash
-userPassword: ${hashed_password_jacobdan}
-mail: jacobdan@${LDAP_DC_2}
-description: Jacob Dan account
-EOF
-
-    chmod -R 755 ${LDAP_FILES_PATH}
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/jacobdan.ldif" || {
-        echo "Error: Failed to add user: \"jacobdan\" to LDAP."
-        exit 1
-    }
-
-    
+    # Add sample users
+    add_ldap_user "johnsmith" "smith123" "John Smith" "1001"
+    add_ldap_user "jacobdan" "dan123" "Jacob Dan" "1002"
 }
 
+# Helper to add a sample user to LDAP
+add_ldap_user() {
+    local uid="$1"
+    local password="$2"
+    local cn="$3"
+    local uid_number="$4"
+    local hashed_password=$(slappasswd -s "$password")
 
-# Function to configure Shibboleth IDP for LDAP connection
+    cat <<EOF > "${LDAP_FILES_PATH}/${uid}.ldif"
+dn: uid=${uid},ou=people,dc=${LDAP_DC_2}
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: ${cn}
+sn: ${cn##* }
+uid: ${uid}
+uidNumber: ${uid_number}
+gidNumber: ${uid_number}
+homeDirectory: /home/${uid}
+loginShell: /bin/bash
+userPassword: ${hashed_password}
+mail: ${uid}@${LDAP_DC_2}
+EOF
+    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/${uid}.ldif"
+}
+
+# Configure Shibboleth to use LDAP - Solution 3 - plain LDAP:
 configure_shibboleth_ldap() {
-    echo
-    echo -e "\n\t-------------Configuring Shibboleth IDP to use LDAP...-------------\n"
-    echo
+    echo_message "Configuring Shibboleth for LDAP Authentication"
+    check_root
 
-    # Install necessary LDAP utilities
-    sudo apt install -y ldap-utils
-
-    # Check LDAP connectivity
-    echo "Checking LDAP connection..."
-    ldapsearch -x -H ldap://localhost -D "cn=idpuser,ou=system,dc=${LDAP_DC_2}" -w "$LDAP_IDPUSER_PASSWORD" -b "ou=people,dc=${LDAP_DC_2}" '(uid=jacobdan)'
-
-    ## Apply Solution 3 - plain LDAP ##:
-    # Configure secrets.properties
-    echo "Updating secrets.properties..."
-    #    echo "idp.authn.LDAP.bindDNCredential=idpuser123" >> "${IDP_HOME}/credentials/secrets.properties"
-    #    echo "idp.attribute.resolver.LDAP.bindDNCredential=%{idp.authn.LDAP.bindDNCredential:undefined}" >> "${IDP_HOME}/credentials/secrets.properties"
     
-    update_property "idp.authn.LDAP.bindDNCredential" "idpuser123" "${SHIB_IDP_SECRETS_PROPERTIES_FILE}"
+    # 1. Update secrets.properties for LDAP credentials
+    update_property "idp.authn.LDAP.bindDNCredential" "${LDAP_IDPUSER_PASSWORD}" "${SHIB_IDP_SECRETS_PROPERTIES_FILE}"
     update_property "idp.attribute.resolver.LDAP.bindDNCredential" '%{idp.authn.LDAP.bindDNCredential:undefined}' "${SHIB_IDP_SECRETS_PROPERTIES_FILE}"
 
-    
-
-    # Configure ldap.properties
-    echo "Updating ldap.properties..."
-
-    # Update properties in ldap.properties
+    # 2. Update ldap.properties for plain LDAP connection
     update_property "idp.authn.LDAP.authenticator" "bindSearchAuthenticator" "$LDAP_PROPERTIES_FILE"
     update_property "idp.authn.LDAP.ldapURL" "ldap://${SHIB_IDP_FQDN}" "$LDAP_PROPERTIES_FILE"
     update_property "idp.authn.LDAP.useStartTLS" "false" "$LDAP_PROPERTIES_FILE"
-    update_property "idp.authn.LDAP.returnAttributes" "passwordExpirationTime,loginGraceRemaining" "$LDAP_PROPERTIES_FILE"
+
     update_property "idp.authn.LDAP.baseDN" "ou=people,dc=${LDAP_DC_2}" "$LDAP_PROPERTIES_FILE"
-    update_property "idp.authn.LDAP.subtreeSearch" "false" "$LDAP_PROPERTIES_FILE"
     update_property "idp.authn.LDAP.bindDN" "cn=idpuser,ou=system,dc=${LDAP_DC_2}" "$LDAP_PROPERTIES_FILE"
+    
+
+    
     update_property "idp.authn.LDAP.userFilter" "(uid={user})" "$LDAP_PROPERTIES_FILE"
-    update_property "idp.attribute.resolver.LDAP.useStartTLS" '%{idp.authn.LDAP.useStartTLS:true}' "$LDAP_PROPERTIES_FILE"
-    update_property "idp.attribute.resolver.LDAP.trustCertificates" '%{idp.authn.LDAP.trustCertificates:undefined}' "$LDAP_PROPERTIES_FILE"
     update_property "idp.attribute.resolver.LDAP.searchFilter" "(uid=\$resolutionContext.principal)" "$LDAP_PROPERTIES_FILE"
     update_property "idp.attribute.resolver.LDAP.exportAttributes" "uid cn sn givenName mail eduPersonAffiliation" "$LDAP_PROPERTIES_FILE"
-    
-    echo "LDAP properties have been updated."
-
-    # Restart Jetty to apply changes
-    service jetty restart
-    echo "Jetty restarted. Checking IdP status..."
-    bash "${IDP_HOME}/bin/status.sh"
-}
 
 
-
-configure_persistent_nameid() {
-    echo
-    echo -e "\n\t-------------configure_persistent_nameid...-------------\n"
-    echo
-    # Enable the generation of the computed persistent-id
-    # Set the source attribute to 'uid' for OpenLDAP
-    saml_persistent_nameid_properties="${IDP_HOME}/conf/saml-nameid.properties"
-    saml_persistent_nameid_xml="${IDP_HOME}/conf/saml-nameid.xml"
-    salt_secret="${IDP_HOME}/credentials/secrets.properties"
-
-    update_property "idp.persistentId.sourceAttribute" "uid" "${saml_persistent_nameid_properties}"
-    
-    
-    
-    # Uncomment the line to enable persistent ID generator in saml-nameid.xml
-    sed -i '/<ref bean="shibboleth.SAML2PersistentGenerator" \/>/d' "${saml_persistent_nameid_xml}"
-    sed -i '/<ref bean="shibboleth.SAML2TransientGenerator" \/>/a \        <ref bean="shibboleth.SAML2PersistentGenerator" />' "${saml_persistent_nameid_xml}"
+    # additional properties:
+    update_property "idp.authn.LDAP.returnAttributes" "passwordExpirationTime,loginGraceRemaining" "$LDAP_PROPERTIES_FILE"
+    update_property "idp.authn.LDAP.subtreeSearch" "false" "$LDAP_PROPERTIES_FILE"
+    update_property "idp.attribute.resolver.LDAP.useStartTLS" '%{idp.authn.LDAP.useStartTLS:true}' "$LDAP_PROPERTIES_FILE"
+    update_property "idp.attribute.resolver.LDAP.trustCertificates" '%{idp.authn.LDAP.trustCertificates:undefined}' "$LDAP_PROPERTIES_FILE"
 
 
     
-    # Generate a salt value for persistent ID encryption and set it in secrets.properties
-    local salt=$(openssl rand -base64 36)
-    update_property "idp.persistentId.salt" "${salt}" "${salt_secret}"
 
-    
-    # Restart Jetty to apply the changes
-    service jetty restart
-
-    # Check IdP Status
-    bash "${IDP_HOME}/bin/status.sh"
-}
-
-
-configure_attribute_resolver() {
-    echo
-    echo -e "\n\t-------------configure_attribute_resolver...-------------\n"
-    echo
-    # Download the sample attribute resolver
-    #wget https://registry.idem.garr.it/idem-conf/shibboleth/IDP4/attribute-resolver-v4-idem-sample.xml -O "${IDP_HOME}/conf/attribute-resolver.xml"
-    cp "${SUPPORTING_FILES_PATH}/attribute-resolver-v5-idem-sample.xml" "${IDP_HOME}/conf/attribute-resolver.xml"
-
-    # If using plain text LDAP, delete/comment specific directives
-    sed -i '/useStartTLS="%{idp.attribute.resolver.LDAP.useStartTLS^*}"/d' "${IDP_HOME}/conf/attribute-resolver.xml"
-    sed -i '/trustFile="%{idp.attribute.resolver.LDAP.trustCertificates}"/d' "${IDP_HOME}/conf/attribute-resolver.xml"
-
-    # Set the correct owner
-    chown jetty "${IDP_HOME}/conf/attribute-resolver.xml"
-
-    # Restart Jetty to apply the changes
-    #systemctl restart jetty.service
     restart_and_check_jetty
+}
 
-    # Check IdP status
+# Configure Persistent NameID
+configure_persistent_nameid() {
+    echo_message "Configuring Persistent NameID -- Strategy A"
+    check_root
+
+    local configuration_details=$(cat <<EOF
+Please make sure to add the following lines in the files:
+
+1. open file '/opt/shibboleth-idp/conf/saml-nameid.properties':
+  1.1. The sourceAttribute MUST be an attribute, or a list of comma-separated attributes, that uniquely identify the subject of the generated persistent-id. The sourceAttribute MUST be a Stable, Permanent and Not-reassignable directory attribute.
+
+       # ... other things ...#
+       # OpenLDAP has the UserID into "uid" attribute
+       idp.persistentId.sourceAttribute = uid
+
+       # Active Directory has the UserID into "sAMAccountName"
+       #idp.persistentId.sourceAttribute = sAMAccountName
+       # ... other things ...#
+
+2. open file '/opt/shibboleth-idp/conf/saml-nameid.xml':
+  2.1. Uncomment the line:
+
+       <ref bean="shibboleth.SAML2PersistentGenerator" />
+
+3. set the salt value:
+  3.1. run the command:
+
+       openssl rand -base64 36
+
+  3.2. open the file: '/opt/shibboleth-idp/credentials/secrets.properties' and run the past the value of point 3.1.:
+       idp.persistentId.salt = ### result of command 'openssl rand -base64 36' ###
+EOF
+	  )
+    request_confirmation "${configuration_details}"
+    perform_exit_on_reject_request "$?" "${FUNCNAME[0]}"
+
+    
+#    local saml_nameid_properties="${IDP_HOME}/conf/saml-nameid.properties"
+#    local saml_nameid_xml="${IDP_HOME}/conf/saml-nameid.xml"
+#    local salt_secret="${IDP_HOME}/credentials/secrets.properties"
+#
+#    update_property "idp.persistentId.sourceAttribute" "uid" "${saml_nameid_properties}"
+#    
+#    # Ensure PersistentGenerator is enabled
+#    if ! grep -q 'ref bean="shibboleth.SAML2PersistentGenerator"' "${saml_nameid_xml}"; then
+#        sed -i '/<ref bean="shibboleth.SAML2TransientGenerator" \/>/a \        <ref bean="shibboleth.SAML2PersistentGenerator" />' "${saml_nameid_xml}"
+#    fi
+#
+#    # Generate and add salt to secrets.properties
+#    local salt=$(#openssl rand -base64 36)
+#    update_property "idp.persistentId.salt" "${salt}" "${salt_secret}"
+
+    restart_and_check_jetty
+    bash "${IDP_HOME}/bin/status.sh"
+    
+}
+
+# Configure Attribute Resolver
+configure_attribute_resolver() {
+    echo_message "Configuring Attribute Resolver"
+    check_root
+
+    if ! cp "${SUPPORTING_FILES_PATH}/attribute-resolver-v5-idem-sample.xml" "${IDP_HOME}/conf/attribute-resolver.xml"; then
+	if ! wget https://conf.idem.garr.it/idem-attribute-resolver-shib-v5.xml -O "${IDP_HOME}/conf/attribute-resolver.xml"; then
+	    exit 1
+	fi
+    fi
+
+
+    local configuration_details=$(cat <<EOF
+1. since we are using the plain text LDAP solution (see the HOWTO GitHub repo), remove or comment the following directives from your Attribute Resolver file '/opt/shibboleth-idp/conf/attribute-resolver.xml':
+
+  Line 1:  useStartTLS="%{idp.attribute.resolver.LDAP.useStartTLS:true}"
+  Line 2:  trustFile="%{idp.attribute.resolver.LDAP.trustCertificates}"
+
+EOF
+	  )
+    request_confirmation "${configuration_details}"
+    perform_exit_on_reject_request "$?" "${FUNCNAME[0]}"
+    
+
+#    # Remove TLS-related settings for plain LDAP
+#    sed -i '/useStartTLS/d' "${IDP_HOME}/conf/attribute-resolver.xml"
+#    sed -i '/trustFile/d' "${IDP_HOME}/conf/attribute-resolver.xml"
+#
+    chown jetty "${IDP_HOME}/conf/attribute-resolver.xml"
+    restart_and_check_jetty
     bash "${IDP_HOME}/bin/status.sh"
 }
 
-
-configure_eduPersonTargetedID() {
-    apt update
-    apt install xmlstarlet -y
+# Configure eduPersonTargetedID
+configure_eduPersonTargetedID_confirm_required() {
+    echo_message "Configuring eduPersonTargetedID"
+    check_root
     # Ensure the attribute resolver XML includes the necessary definitions for eduPersonTargetedID
     # Add or ensure the following entries exist in /opt/shibboleth-idp/conf/attribute-resolver.xml
     local configuration_details=$(cat <<EOF
@@ -867,12 +794,9 @@ please make sure the following script is added into '/opt/shibboleth-idp/conf/at
 </DataConnector>
 EOF
 	  )
-    request_confirmation "$configuration_details"
-    if [ $? -ne 0 ]; then
-	echo -e "\nExiting configuration process... -- as you did not confirm if the value exist or not"
-	#return 1
-	exit 1
-    fi
+    request_confirmation "${configuration_details}"
+    perform_exit_on_reject_request "$?" "${FUNCNAME[0]}"
+    
     echo "Proceeding with further configuration..."
 
     # Download custom eduPersonTargetedID properties
@@ -893,191 +817,365 @@ EOF
     # Check IdP status
     bash "${IDP_HOME}/bin/status.sh"
 }
+configure_eduPersonTargetedID() {
+    echo_message "Configuring eduPersonTargetedID"
+    check_root
 
-configure_idp_logging() {
+    
+    local attr_resolver_file="${IDP_HOME}/conf/attribute-resolver.xml"
 
-    # Insert a comment for clarity in the logback configuration
-    sed -i '/^    <logger name="org.ldaptive".*/a \\n    <!-- Logs on LDAP user authentication - ADDED BY IDEM HOWTO -->' "${IDP_HOME}/conf/logback.xml"
+    # Automate XML insertion using xmlstarlet
+    if ! xmlstarlet sel -t -c "//*:AttributeDefinition[@id='eduPersonTargetedID']" "$attr_resolver_file" > /dev/null; then
+        xmlstarlet ed -L -s "/*[local-name()='AttributeResolver']" -t elem -n "AttributeDefinition" -v "" \
+            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "xsi:type" -v "SAML2NameID" \
+            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "nameIdFormat" -v "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent" \
+            -i "//*[local-name()='AttributeDefinition'][last()]" -t attr -n "id" -v "eduPersonTargetedID" \
+            -s "//*[local-name()='AttributeDefinition'][last()]" -t elem -n "InputDataConnector" -v "" \
+            -i "//*[local-name()='AttributeDefinition'][last()]/*[local-name()='InputDataConnector']" -t attr -n "ref" -v "computed" \
+            -i "//*[local-name()='AttributeDefinition'][last()]/*[local-name()='InputDataConnector']" -t attr -n "attributeNames" -v "computedId" \
+            "$attr_resolver_file"
+    fi
 
-    # Add a new logger entry specifically for LDAP authentication errors
-    sed -i '/^    <!-- Logs on LDAP user authentication - ADDED BY IDEM HOWTO -->/a \ \ \ \ <logger name="org.ldaptive.auth.Authenticator" level="INFO" />' "${IDP_HOME}/conf/logback.xml"
+    if ! xmlstarlet sel -t -c "//*:DataConnector[@id='computed']" "$attr_resolver_file" > /dev/null; then
+        xmlstarlet ed -L -s "/*[local-name()='AttributeResolver']" -t elem -n "DataConnector" -v "" \
+            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "id" -v "computed" \
+            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "xsi:type" -v "ComputedId" \
+            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "generatedAttributeID" -v "computedId" \
+            -i "//*[local-name()='DataConnector'][last()]" -t attr -n "salt" -v "%{idp.persistentId.salt}" \
+            -s "//*[local-name()='DataConnector'][last()]" -t elem -n "InputDataConnector" -v "" \
+            -i "//*[local-name()='DataConnector'][last()]/*[local-name()='InputDataConnector']" -t attr -n "ref" -v "myLDAP" \
+            -i "//*[local-name()='DataConnector'][last()]/*[local-name()='InputDataConnector']" -t attr -n "attributeNames" -v "%{idp.persistentId.sourceAttribute}" \
+            "$attr_resolver_file"
+    fi
+
+    cp "${SUPPORTING_FILES_PATH}/eduPersonTargetedID.properties.txt" "${IDP_HOME}/conf/attributes/custom/eduPersonTargetedID.properties"
+    chown jetty:root "${IDP_HOME}/conf/attributes/custom/eduPersonTargetedID.properties"
+    restart_and_check_jetty
+    bash "${IDP_HOME}/bin/status.sh"
 }
 
+# Configure IdP Logging
+configure_idp_logging() {
+    echo_message "Configuring IdP Logging"
+    check_root
 
+    
+    local logback_file="${IDP_HOME}/conf/logback.xml"
+    if ! grep -q '<!-- Logs on LDAP user authentication - ADDED BY CORRECTED SCRIPT -->' "$logback_file"; then
+        sed -i '/^    <logger name="org.ldaptive".*/a \
+    <!-- Logs on LDAP user authentication - ADDED BY CORRECTED SCRIPT -->\
+    <logger name="org.ldaptive.auth.Authenticator" level="INFO" />' "$logback_file"
+    fi
+
+#    # Insert a comment for clarity in the logback configuration
+#    sed -i '/^    <logger name="org.ldaptive".*/a \\n    <!-- Logs on LDAP user authentication - ADDED BY IDEM HOWTO -->' "${IDP_HOME}/conf/logback.xml"
+#
+#    # Add a new logger entry specifically for LDAP authentication errors
+#    sed -i '/^    <!-- Logs on LDAP user authentication - ADDED BY IDEM HOWTO -->/a \ \ \ \ <logger name="org.ldaptive.auth.Authenticator" level="INFO" />' "${IDP_HOME}/conf/logback.xml"
+    bash "${IDP_HOME}/bin/status.sh"
+}
+
+# Secure Cookies and IdP Data
 secure_cookies_and_idp_data(){
-    echo "Setting up security for cookies and other IdP data..."
+    echo_message "Securing Cookies and IdP Data"
+    check_root
     
-    # Download the updateIDPsecrets.sh script
-    echo "Downloading updateIDPsecrets.sh script..."
-    #wget https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/bin/updateIDPsecrets.sh -O /opt/shibboleth-idp/bin/updateIDPsecrets.sh
+    # wget https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/updateIDPsecrets.sh -O "${IDP_HOME}/bin/updateIDPsecrets.sh"
     cp "${SUPPORTING_FILES_PATH}/updateIDPsecrets.sh" "${IDP_HOME}/bin/updateIDPsecrets.sh"
-    
-    
-    # Give executable permissions
-    echo "Setting executable permissions on the script..."
     chmod +x "${IDP_HOME}/bin/updateIDPsecrets.sh"
     
-    # Create a CRON job script
-    echo "Creating CRON script to run the updateIDPsecrets.sh daily..."
     cat > /etc/cron.daily/updateIDPsecrets <<EOF
 #!/bin/bash
 ${IDP_HOME}/bin/updateIDPsecrets.sh
 EOF
-    
-    # Give executable permissions to the CRON script
     chmod +x /etc/cron.daily/updateIDPsecrets
 
-    # Confirm that the script is properly scheduled
-    echo "Confirming the script is scheduled to run daily..."
-    if sudo run-parts --test /etc/cron.daily | grep -q 'updateIDPsecrets'; then
-        echo "CRON job is scheduled correctly."
-    else
-        echo "Error: CRON job is not set up correctly."
-    fi
-    
-    # Optionally add properties to conf/idp.properties
-    echo "Optionally adding properties to ${IDP_HOME}/conf/idp.properties..."
-#    # This step assumes idp.properties is correctly formatted and ready to accept additional properties
-#    echo "idp.sealer._count = 30" >> /opt/shibboleth-idp/conf/idp.properties
-#    echo "idp.sealer._sync_hosts = localhost" >> /opt/shibboleth-idp/conf/idp.properties    
+    run-parts --test /etc/cron.daily
+    bash "${IDP_HOME}/bin/status.sh"
 }
 
+
+# --- Remain Work ---
 Remaining_work() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║          POST-INSTALLATION TASKS                               ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "The automated installation is complete! However, some manual tasks"
+    echo "remain to fully configure and customize your Shibboleth IdP."
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  1. CUSTOMIZE IDP LOGIN PAGE"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Add your institutional logo and branding:"
+    echo ""
+    echo "  • Logo requirements: 80x60 pixels, PNG format"
+    echo "  • Location: ${IDP_HOME}/edit-webapp/images/"
+    echo "  • File name: logo.png"
+    echo ""
+    echo "Steps:"
+    echo "  1. Copy your logo:"
+    echo "     cp /path/to/your/logo.png ${IDP_HOME}/edit-webapp/images/logo.png"
+    echo ""
+    echo "  2. Add the logo's path to: ${IDP_HOME}/messages/messages.properties:"
+    echo "     idp.logo = /images/idp-logo.png"
+    echo ""
+    echo "  3. Update the IdP metadata logo path to (metadata file: ${IDP_HOME}/metadata/idp-metadata.xml)"
+    echo "     <mdui:Logo xml:lang='en' width='80' height='80'>https://${SHIB_IDP_FQDN}/images/idp-logo.png</mdui:Logo>"
+    echo ""
+    echo "  4. Rebuild IdP WAR file:"
+    echo "     bash ${IDP_HOME}/bin/build.sh"
+    echo ""
+    echo "  5. Restart Jetty:"
+    echo "     systemctl restart jetty"
+    echo ""
+    echo "Reference:"
+    echo "  https://github.com/ConsortiumGARR/idem-tutorials/blob/master/idem-fedops/"
+    echo "  HOWTO-Shibboleth/Identity%20Provider/Debian-Ubuntu/"
+    echo "  HOWTO-Install-and-Configure-a-Shibboleth-IdP-v5.x-on-Debian-Ubuntu-Linux-with-Apache-%2B-Jetty.md#enrich-idp-login-page-with-the-institutional-logo"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  2. CONNECT A SERVICE PROVIDER (SP)"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "To test authentication, connect a Service Provider to your IdP:"
+    echo ""
+    echo "Steps:"
+    echo "  1. Obtain SP metadata (XML file from your SP)"
+    echo ""
+    echo "  2. Add SP metadata to IdP:"
+    echo "     vim ${IDP_HOME}/conf/metadata-providers.xml"
+    echo ""
+    echo "     Add inside <MetadataProvider> tag:"
+    echo '     <MetadataProvider id="LocalSP"'
+    echo '         xsi:type="FilesystemMetadataProvider"'
+    echo -e "      backingFile=\"${IDP_HOME}/metadata/sp-metadata.xml\""
+    echo -e "      metadataFile=\"https://sp.example.org/Shibboleth.sso/Metadata\""
+    echo -e "      failFastInitialization=\"false\"/>"
+    echo ""
+    echo "  3. Configure attribute release policy:"
+    echo "       wget https://github.com/ConsortiumGARR/idem-tutorials/raw/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils/idem-example-arp.txt -O ${IDP_HOME}/conf/example-arp.txt"
+    echo "     cat ${IDP_HOME}/conf/example-arp.txt"
+    echo "     Copy the content of the file '${IDP_HOME}/conf/example-arp.txt' and paste it before </AttributeFilterPolicyGroup> in the file:"
+    echo "         '${IDP_HOME}/conf/attribute-filter.xml'"
+    echo ""
+    echo "     Update ### SP-ENTITYID ### with the actual SP entityID."
+    echo ""
+    echo "     Example policy:"
+    echo '     <AttributeFilterPolicy id="releasePolicyToSP">'
+    echo '         <PolicyRequirementRule xsi:type="Requester"'
+    echo '             value="### SP-ENTITYID ###" />'
+    echo '         <AttributeRule attributeID="eduPersonPrincipalName">'
+    echo '             <PermitValueRule xsi:type="ANY" />'
+    echo '         </AttributeRule>'
+    echo '     </AttributeFilterPolicy>'
+    echo ""
+    echo "  4. Restart Jetty:"
+    echo "     systemctl restart jetty"
+    echo ""
+    echo "Reference:"
+    echo "  https://github.com/ConsortiumGARR/idem-tutorials/blob/master/idem-fedops/"
+    echo "  HOWTO-Shibboleth/Identity%20Provider/Debian-Ubuntu/"
+    echo "  HOWTO-Install-and-Configure-a-Shibboleth-IdP-v5.x-on-Debian-Ubuntu-Linux-with-Apache-%2B-Jetty.md#appendix-d-connect-an-sp-with-the-idp"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  3. REPLACE SELF-SIGNED SSL CERTIFICATES (PRODUCTION)"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "For production use, replace self-signed certificates with CA-signed ones:"
+    echo ""
+    echo "Steps:"
+    echo "  1. Obtain certificates from your Certificate Authority"
+    echo ""
+    echo "  2. Copy certificates:"
+    echo "     cp your-cert.crt /etc/ssl/certs/${SHIB_IDP_HOSTNAME}.crt"
+    echo "     cp your-key.key /etc/ssl/private/${SHIB_IDP_HOSTNAME}.key"
+    echo ""
+    echo "  3. Set permissions:"
+    echo "     chmod 644 /etc/ssl/certs/${SHIB_IDP_HOSTNAME}.crt"
+    echo "     chmod 600 /etc/ssl/private/${SHIB_IDP_HOSTNAME}.key"
+    echo ""
+    echo "  4. Restart Apache:"
+    echo "     systemctl restart apache2"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  4. REGISTER HOSTNAMES IN '/etc/hosts'"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Add the machine's IP and hostname to all devices in the network:"
+    echo ""
+    echo -e "Steps:"
+    echo -e "\t3.1 Access \"/etc/hosts\" and add the following line:"
+    echo -e "\t    \"${IP_ADDRESS}	${SHIB_IDP_FQDN}\""
+    echo -e "\t    where:"
+    echo -e "\t      \"${IP_ADDRESS}\" is the IdP's private IP in my network, locally. -- YOURS MIGHT BE DIFFERENT. just check your IdP's IP address"
+    echo -e "\t      \"${SHIB_IDP_FQDN}\" is the IdPs's Fully Qualified Domain Name."
     echo
-    echo "The following sections you may want to figure out by yourself:"
-    echo -e "\t1. Enrich IdP Login Page with the Institutional Logo"
-    echo -e "\t   Reference: https://github.com/ConsortiumGARR/idem-tutorials/blob/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/Debian-Ubuntu/HOWTO-Install-and-Configure-a-Shibboleth-IdP-v5.x-on-Debian-Ubuntu-Linux-with-Apache-%2B-Jetty.md#enrich-idp-login-page-with-the-institutional-logo"
-    echo -e "\t   Steps:"
-    echo -e "\t     1.1 Look for \"placeholder-logo.png\" or \"logo.png\" at https://${SHIB_IDP_FQDN}/idp/images"
-    echo -e "\t     1.2 Copy your institutional logo to: ${IDP_HOME}/edit-webapp/images/idp-logo.png"
-    echo -e "\t     1.3 Add the path to the IDP Logo:"
-    echo -e "\t         idp.logo = /images/idp-logo.png"
-    echo -e "\t         Update this in: ${IDP_HOME}/messages/messages.properties"
-    echo -e "\t     1.4 Rebuild the IdP WAR file:"
-    echo -e "\t         bash ${IDP_HOME}/bin/build.sh"
-    echo -e "\t     1.5 Update the IdP metadata logo path to:"
-    echo -e "\t         <mdui:Logo xml:lang='en' width='80' height='80'>https://${SHIB_IDP_FQDN}/images/idp-logo.png</mdui:Logo>"
-    echo
-
-    echo -e "\t2. Connect the SP to the IdP"
-    echo -e "\t   Reference: Appendix D: Connect an SP with the IdP"
-    echo -e "\t   Steps:"
-    echo -e "\t     2.1 Add the SP metadata configuration to metadata-providers.xml:"
-    echo -e "\t         vim /opt/shibboleth-idp/conf/metadata-providers.xml"
-    echo -e "\t         Add the following inside the <MetadataProviderGroup> element:"
-    echo -e "\t           <MetadataProvider id=\"HTTPMetadata\""
-    echo -e "\t                           xsi:type=\"FileBackedHTTPMetadataProvider\""
-    echo -e "\t                           backingFile=\"%{idp.home}/metadata/sp-metadata.xml\""
-    echo -e "\t                           metadataURL=\"https://sp.example.org/Shibboleth.sso/Metadata\""
-    echo -e "\t                           failFastInitialization=\"false\"/>"
-    echo -e "\t     2.2 Add an AttributeFilterPolicy to attribute-filter.xml:"
-    echo -e "\t         wget https://registry.idem.garr.it/idem-conf/shibboleth/IDP5/conf/idem-example-arp.txt -O /opt/shibboleth-idp/conf/example-arp.txt"
-    echo -e "\t         cat /opt/shibboleth-idp/conf/example-arp.txt"
-    echo -e "\t         Copy and paste the content before </AttributeFilterPolicyGroup> in:"
-    echo -e "\t           /opt/shibboleth-idp/conf/attribute-filter.xml"
-    echo -e "\t         Update ### SP-ENTITYID ### with the actual SP entityID."
-    echo -e "\t     2.3 Restart Jetty to apply changes:"
-    echo -e "\t         systemctl restart jetty"
-    echo
-
-    echo -e "\t3. Add the machine's IP and hostname to all devices in the network:"
-    echo -e "\t   Steps:"
-    echo -e "\t     3.1 Access \"/etc/hosts\" and add the following line:"
-    echo -e "\t         \"${IP_ADDRESS}	${SHIB_IDP_FQDN}\""
-    echo -e "\t         where:"
-    echo -e "\t           \"${IP_ADDRESS}\" is the IdP's private IP in my network, locally. -- YOURS MIGHT BE DIFFERENT. just check your IdP's IP address"
-    echo -e "\t           \"${SHIB_IDP_FQDN}\" is the IdPs's Fully Qualified Domain Name."
-    echo
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  5. JOIN A FEDERATION (OPTIONAL)"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "To join IDEM or another SAML federation:"
+    echo ""
+    echo "  1. Register your IdP with the federation"
+    echo "  2. Download federation metadata"
+    echo "  3. Configure metadata refresh"
+    echo "  4. Update attribute release policies"
+    echo ""
+    echo "Reference:"
+    echo "  https://www.idem.garr.it/ (for IDEM federation)"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  6. CONFIGURE FIREWALL (PRODUCTION)"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Allow necessary ports:"
+    echo ""
+    echo "  ufw allow 80/tcp    # HTTP"
+    echo "  ufw allow 443/tcp   # HTTPS"
+    echo "  ufw enable"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  6. CHANGE DEFAULT PASSWORDS (CRITICAL)"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "Change LDAP passwords for production:"
+    echo ""
+    echo "  • LDAP admin password: admin123 (CHANGE THIS!)"
+    echo "  • LDAP idpuser password: idpuser123 (CHANGE THIS!)"
+    echo "  • Sample user passwords: smith123, dan123 (CHANGE OR DELETE!)"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo "  USEFUL COMMANDS"
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "  # Check IdP status"
+    echo "  bash /opt/shibboleth-idp/bin/status.sh"
+    echo ""
+    echo "  # View IdP logs"
+    echo "  tail -f /opt/shibboleth-idp/logs/idp-process.log"
+    echo ""
+    echo "  # Restart services"
+    echo "  systemctl restart jetty"
+    echo "  systemctl restart apache2"
+    echo ""
+    echo "  # Test LDAP"
+    echo "  ldapsearch -x -H ldap://localhost -D \"cn=admin,${LDAP_DC_COMPOSITE}\" -w \"admin123\" -b \"${LDAP_DC_COMPOSITE}\""
+    echo ""
+    echo "  # Access IdP metadata"
+    echo "  curl -k https://${SHIB_IDP_HOSTNAME}/idp/shibboleth"
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "To view these tasks again, run:"
+    echo "  $(basename "$0") --print-remaining"
+    echo ""
+    echo "For more information, see README.md"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════"
 }
 
 
 
 
 
-# Main script execution:
-main(){
-    update_hosts_file
-    update_hostname
+# --- Main Execution ---
+main() {
+    check_root
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║          INSTALLATION START!                                   ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    print_env_variables
+    check_os_version
+    check_internet
+    check_supporting_files_exist
+    check_ldap_dir_availbility
+    
+
+    configure_hostname
+    configure_java_environment
     install_dependencies
-
-    #6.1: Install Apache Web Server
-    apt install apache2 -y
-
-    # Invoke the function to check the Java version
-    check_java_version
-    
-    
-    
-    #6.3 Install Jetty Servlet Container:
-    # Check if Jetty is already installed
-    if [ ! -d "/usr/local/src/jetty-src" ]; then
-	install_jetty
-    else
-	echo "Jetty is already installed."
-    fi
-
-    #7: # Check if Shibboleth IdP is already installed                              
-    if [ ! -d "/opt/shibboleth-idp" ]; then
-	install_shibboleth
-	fix_installed_idp_errors
-    else
-	echo "Shibboleth Identity Provider is already installed."
-    fi
-
-    #6: 
+    install_amazon_corretto
+    install_jetty
+    install_shibboleth
     disable_directory_indexing
-
-    # step9: # Execute main_apache_configuration_method
-    main_apache_configuration_method
-
-    # step10: Configure Jetty Context Descriptor for IdP
     configure_jetty_context
+    configure_apache
 
-    # step11: Configure Apache2 as the front-end of Jetty
-    configure_apache_as_reverse_proxy
-        
-    # step12: Call the function to execute the checks
-    check_idp_storage_service
-    
-    # step13: Install OpenLDAP:
-    if dpkg -l | grep -qw slapd; then
-	echo
-	echo "OpenLDAP is already installed..."
-	echo
-    else
-	# step13.1: install and configure openLDAP
-	install_openldap
-	
-	# step13.2: configure_shibboleth_ldap  
-	configure_shibboleth_ldap
-    fi
-
-
-    # step14: Configure Shibboleth Identity Provider to release the persistent NameID
-    configure_persistent_nameid
-
-
-    # step15: Configure the attribute resolver (sample)
-    configure_attribute_resolver
+    # step: Configure Shibboleth Identity Provider Storage Service -- recommended approach no action required
     
     
-    # step16: Configure Shibboleth Identity Provider to release the eduPersonTargetedID
-    configure_eduPersonTargetedID
+    install_openldap
+    configure_shibboleth_ldap
     
-    
-    # step17: Configure Shibboleth IdP Logging
+    configure_persistent_nameid  # MUST be done MANUALLY
+    configure_attribute_resolver # for safety: done it MANUALLY
+    configure_eduPersonTargetedID_confirm_required # MUST be done MANUALLY
+
     configure_idp_logging
-
-
     secure_cookies_and_idp_data
-
-    
+#
+    echo_message "Shibboleth IdP Installation and Configuration Complete!"
+    echo "Please review all logs and test the IdP functionality."
+    echo "You can check the IdP status with: bash ${IDP_HOME}/bin/status.sh"
+    echo "IdP metadata is available at: https://${SHIB_IDP_FQDN}/idp/shibboleth"
+    echo
+    echo
+    echo
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║          INSTALLATION COMPLETE!                                ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
     Remaining_work
-    
 }
 
 
 
 
-main
+
+
+
+# ----------------------------------------------------------------------------
+# Main Menu
+# ----------------------------------------------------------------------------
+# Parse command-line arguments
+case "${1:-}" in
+    -i|--install)
+        # Check if running as root
+        check_root
+        
+        # Run the main installation
+        main "$@"
+        ;;
+        
+    -p|--print-remaining)
+        # Print remaining tasks (doesn't require root)
+        Remaining_work
+        ;;
+        
+    -h|--help)
+        # Show help
+        show_usage
+        ;;
+        
+    "")
+        # No arguments - show usage
+        show_usage
+        exit 0
+        ;;
+        
+    *)
+        # Unknown option
+        echo "Error: Unknown option: $1"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac
 
