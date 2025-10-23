@@ -4,7 +4,7 @@
 IDP_HOME="/opt/shibboleth-idp"
 JETTY_VERSION="11.0.25" # Using a recent stable version
 SHIB_IDP_VERSION="5.1.6" # As per original script
-SHIB_IDP_HOSTNAME="idp.localtest2"
+SHIB_IDP_HOSTNAME="idp1.localtest2.lab"
 SHIB_IDP_FQDN="${SHIB_IDP_HOSTNAME}"
 SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
 JAVA_HOME_ENV='/usr/lib/jvm/java-17-amazon-corretto'
@@ -22,9 +22,13 @@ SUPPORTING_FILES_PATH="${MAIN_SCRIPT_PATH}/idp5_supporting_files"
 LDAP_FILES_PATH="${MAIN_SCRIPT_PATH}/ldif_files"
 LDAP_PROPERTIES_FILE="${IDP_HOME}/conf/ldap.properties"
 
-LDAP_DC_1=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $1}')    # "idp"
-LDAP_DC_2=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $NF}')       # "localtest1"
-LDAP_DC_COMPOSITE="dc=${LDAP_DC_2}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
+LDAP_DC_1=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $1}')    # "idp1"
+LDAP_DC_2=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $(NF-1)}')       # "localtest2"
+LDAP_DC_3=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $NF}')       # "lab"
+LDAP_DC_COMPOSITE="dc=${LDAP_DC_2},dc=${LDAP_DC_3}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
+LDAP_DOMAIN=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{for(i=2;i<=NF;i++) printf "%s%s", $i, (i<NF?".":"")}')
+echo "LDAP_DC_COMPOSITE = ${LDAP_DC_COMPOSITE}"
+echo "LDAP_DOMAIN = ${LDAP_DOMAIN}"
 
 LDAP_ADMIN_PASSWORD='admin123'
 LDAP_IDPUSER_PASSWORD='idpuser123'
@@ -563,8 +567,8 @@ install_openldap() {
     cat <<EOF > "${LDAP_FILES_PATH}/slapd.seed"
 slapd slapd/password1 password ${LDAP_ADMIN_PASSWORD}
 slapd slapd/password2 password ${LDAP_ADMIN_PASSWORD}
-slapd slapd/domain string ${LDAP_DC_2}
-slapd slapd/organization string "${LDAP_DC_2}"
+slapd slapd/domain string ${LDAP_DOMAIN}
+slapd slapd/organization string "${LDAP_DOMAIN}"
 slapd slapd/no_configuration boolean false
 slapd slapd/backend select MDB
 slapd slapd/purge_database boolean false
@@ -585,31 +589,31 @@ setup_ldap_dit() {
     
     # Create OUs
     cat <<EOF > "${LDAP_FILES_PATH}/ou-structure.ldif"
-dn: ou=system,dc=${LDAP_DC_2}
+dn: ou=system,${LDAP_DC_COMPOSITE}
 objectClass: organizationalUnit
 ou: system
 
-dn: ou=people,dc=${LDAP_DC_2}
+dn: ou=people,${LDAP_DC_COMPOSITE}
 objectClass: organizationalUnit
 ou: people
 
-dn: ou=groups,dc=${LDAP_DC_2}
+dn: ou=groups,${LDAP_DC_COMPOSITE}
 objectClass: organizationalUnit
 ou: groups
 EOF
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/ou-structure.ldif"
+    ldapadd -x -D "cn=admin,${LDAP_DC_COMPOSITE}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/ou-structure.ldif"
 
     # Add idpuser for Shibboleth
     local hashed_password=$(slappasswd -s "$LDAP_IDPUSER_PASSWORD")
     cat <<EOF > "${LDAP_FILES_PATH}/idpuser.ldif"
-dn: cn=idpuser,ou=system,dc=${LDAP_DC_2}
+dn: cn=idpuser,ou=system,${LDAP_DC_COMPOSITE}
 objectClass: simpleSecurityObject
 objectClass: organizationalRole
 cn: idpuser
 userPassword: ${hashed_password}
 description: Service account for Shibboleth IdP
 EOF
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/idpuser.ldif"
+    ldapadd -x -D "cn=admin,${LDAP_DC_COMPOSITE}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/idpuser.ldif"
 
     # Add sample users
     add_ldap_user "johnsmith" "smith123" "John Smith" "1001"
@@ -625,7 +629,7 @@ add_ldap_user() {
     local hashed_password=$(slappasswd -s "$password")
 
     cat <<EOF > "${LDAP_FILES_PATH}/${uid}.ldif"
-dn: uid=${uid},ou=people,dc=${LDAP_DC_2}
+dn: uid=${uid},ou=people,${LDAP_DC_COMPOSITE}
 objectClass: inetOrgPerson
 objectClass: posixAccount
 objectClass: shadowAccount
@@ -637,9 +641,9 @@ gidNumber: ${uid_number}
 homeDirectory: /home/${uid}
 loginShell: /bin/bash
 userPassword: ${hashed_password}
-mail: ${uid}@${LDAP_DC_2}
+mail: ${uid}@${LDAP_DC_COMPOSITE}
 EOF
-    ldapadd -x -D "cn=admin,dc=${LDAP_DC_2}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/${uid}.ldif"
+    ldapadd -x -D "cn=admin,${LDAP_DC_COMPOSITE}" -w "${LDAP_ADMIN_PASSWORD}" -f "${LDAP_FILES_PATH}/${uid}.ldif"
 }
 
 # Configure Shibboleth to use LDAP - Solution 3 - plain LDAP:
@@ -657,8 +661,8 @@ configure_shibboleth_ldap() {
     update_property "idp.authn.LDAP.ldapURL" "ldap://${SHIB_IDP_FQDN}" "$LDAP_PROPERTIES_FILE"
     update_property "idp.authn.LDAP.useStartTLS" "false" "$LDAP_PROPERTIES_FILE"
 
-    update_property "idp.authn.LDAP.baseDN" "ou=people,dc=${LDAP_DC_2}" "$LDAP_PROPERTIES_FILE"
-    update_property "idp.authn.LDAP.bindDN" "cn=idpuser,ou=system,dc=${LDAP_DC_2}" "$LDAP_PROPERTIES_FILE"
+    update_property "idp.authn.LDAP.baseDN" "ou=people,${LDAP_DC_COMPOSITE}" "$LDAP_PROPERTIES_FILE"
+    update_property "idp.authn.LDAP.bindDN" "cn=idpuser,ou=system,${LDAP_DC_COMPOSITE}" "$LDAP_PROPERTIES_FILE"
     
 
     
@@ -678,6 +682,34 @@ configure_shibboleth_ldap() {
 
     restart_and_check_jetty
 }
+
+
+
+test_ldap_installation() {
+    echo_message "Testing LDAP Installation"
+    
+    if ldapsearch -x -LLL -H ldap://localhost -b "${LDAP_DC_COMPOSITE}" \
+        -D "cn=admin,${LDAP_DC_COMPOSITE}" -w "${LDAP_ADMIN_PASSWORD}" > /dev/null 2>&1; then
+        echo "✓ LDAP connection successful"
+    else
+        echo "✗ LDAP connection failed"
+        #return 1
+	exit 1
+    fi
+    if ldapsearch -x -LLL -H ldap://localhost -D "cn=idpuser,ou=system,${LDAP_DC_COMPOSITE}" -w "${LDAP_IDPUSER_PASSWORD}" -b "ou=people,${LDAP_DC_COMPOSITE}" "(uid=jacobdan)" > /dev/null 2>&1; then
+	echo "✓ LDAP connection successful -- via idpuser"
+    else
+        echo "✗ LDAP connection failed -- via idpuser"
+        #return 1
+	exit 1
+    fi
+	
+}
+
+
+
+
+
 
 # Configure Persistent NameID
 configure_persistent_nameid() {
@@ -1077,6 +1109,7 @@ main() {
     
     install_openldap
     configure_shibboleth_ldap
+    test_ldap_installation
     
     configure_persistent_nameid  # MUST be done MANUALLY
     configure_attribute_resolver # for safety: done it MANUALLY
