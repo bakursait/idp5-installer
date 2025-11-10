@@ -56,7 +56,7 @@ The installer uses the following software versions (configurable in the script):
 | Component | Version | Variable Name |
 |-----------|---------|---------------|
 | **Shibboleth IdP** | 5.1.6 | `SHIB_IDP_VERSION` |
-| **Jetty** | 11.0.25 | `JETTY_VERSION` |
+| **Jetty** | +12.1.3 | `JETTY_VERSION` |
 | **Java** | Amazon Corretto 17 | `JAVA_HOME_ENV` |
 | **Apache** | 2.4+ | (from apt) |
 | **OpenLDAP** | Latest from apt | (from apt) |
@@ -81,11 +81,8 @@ idp5-installer/
 │   ├── jetty-start.ini.txt
 │   ├── updateIDPsecrets.sh
 │   └── ...
-├── ldif_files/                              # Auto-generated LDAP directory files
-│   ├── ou-structure.ldif
-│   ├── idpuser.ldif
-│   ├── johnsmith.ldif
-│   ├── jacobdan.ldif
+├── utils/                   # Configuration templates and files cloned from the repo: [HOWTO guide provided by Consortium GARR](https://github.com/ConsortiumGARR/idem-tutorials/tree/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils)
+│   ├── YYYY-MM-DD-utils/
 │   └── ...
 └── README.md                                # This file
 ```
