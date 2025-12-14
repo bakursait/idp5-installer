@@ -4,7 +4,7 @@
 IDP_HOME="/opt/shibboleth-idp"
 JETTY_VERSION="12.1.3" # Using a recent stable version
 SHIB_IDP_VERSION="5.1.6" # As per original script
-SHIB_IDP_HOSTNAME="idp1.localtest2.lab"
+SHIB_IDP_HOSTNAME="idp1.home.lab"
 SHIB_IDP_FQDN="${SHIB_IDP_HOSTNAME}"
 SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
 JAVA_HOME_ENV='/usr/lib/jvm/java-17-amazon-corretto'
@@ -23,7 +23,7 @@ LDAP_FILES_PATH="${MAIN_SCRIPT_PATH}/ldif_files"
 LDAP_PROPERTIES_FILE="${IDP_HOME}/conf/ldap.properties"
 
 LDAP_DC_1=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $1}')    # "idp1"
-LDAP_DC_2=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $(NF-1)}')       # "localtest2"
+LDAP_DC_2=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $(NF-1)}')       # "home"
 LDAP_DC_3=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{print $NF}')       # "lab"
 LDAP_DC_COMPOSITE="dc=${LDAP_DC_2},dc=${LDAP_DC_3}"     # you can set it like this: "dc=${LDAP_DC_1},dc=${LDAP_DC_2}"
 LDAP_DOMAIN=$(echo "${SHIB_IDP_HOSTNAME}" | awk -F'.' '{for(i=2;i<=NF;i++) printf "%s%s", $i, (i<NF?".":"")}')
