@@ -63,12 +63,29 @@ The installer uses the following software versions (configurable in the script):
 
 
 ## What need to be changed based on your setup:
-JETTY_VERSION="12.1.3" # Using a recent stable version
-SHIB_IDP_VERSION="5.1.6" # As per original script
+The following is the main variables might need to be changed, some you may leave as is.
+```bash
+# Usually is leave it as is, if you are using Ubuntu. Otherwise, set it to the Loopback of your machine.
+LOOP_IP_ADDRESS="127.0.1.1"
+
+# change it to your actual IP address:
+IP_ADDRESS="192.168.4.220"
+
+# Using a recent stable version, up to the date of 28-11-2025
+JETTY_VERSION="12.1.3"
+
+# IDP version, As per original script, up to the date of 28-11-2025
+SHIB_IDP_VERSION="5.1.6"
+
+# set Host name
 SHIB_IDP_HOSTNAME="idp1.home.lab"
+
+# set Shb-IdP FQDN, here it is the same as the hostname
 SHIB_IDP_FQDN="${SHIB_IDP_HOSTNAME}"
-SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
+
+# Java environment path:
 JAVA_HOME_ENV='/usr/lib/jvm/java-17-amazon-corretto'
+```
 
 ## GAAR Tutorial has some files help to configure our setup. 
 - we downloaded these files at the directory: `utils/DD-MM-YY-utils`
