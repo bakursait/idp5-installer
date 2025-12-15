@@ -1,0 +1,13 @@
+dn: uid=jacobdan,ou=people,dc=home,dc=lab
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: Jacob Dan
+sn: Dan
+uid: jacobdan
+uidNumber: 1002
+gidNumber: 1002
+homeDirectory: /home/jacobdan
+loginShell: /bin/bash
+userPassword: {SSHA}MHQlDXwAv/fN/gTREdSM4UEuioOTzE4x
+mail: jacobdan@dc=home,dc=lab

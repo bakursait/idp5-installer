@@ -1,0 +1,6 @@
+dn: cn=idpuser,ou=system,dc=home,dc=lab
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: idpuser
+userPassword: {SSHA}Onb7LErkAYeCih64k8gFOpKnpykTLQEl
+description: Service account for Shibboleth IdP

@@ -55,11 +55,30 @@ The installer uses the following software versions (configurable in the script):
 
 | Component | Version | Variable Name |
 |-----------|---------|---------------|
-| **Shibboleth IdP** | 5.1.6 | `SHIB_IDP_VERSION` |
-| **Jetty** | 11.0.25 | `JETTY_VERSION` |
-| **Java** | Amazon Corretto 17 | `JAVA_HOME_ENV` |
+| **SHIB_IDP_VERSION** | 5.1.6 | `SHIB_IDP_VERSION` |
+| **JETTY_VERSION** | +12.1.3 | `JETTY_VERSION` |
+| **JAVA** | Amazon Corretto 17 | `JAVA_HOME_ENV` |
 | **Apache** | 2.4+ | (from apt) |
 | **OpenLDAP** | Latest from apt | (from apt) |
+
+
+## What need to be changed based on your setup:
+JETTY_VERSION="12.1.3" # Using a recent stable version
+SHIB_IDP_VERSION="5.1.6" # As per original script
+SHIB_IDP_HOSTNAME="idp1.home.lab"
+SHIB_IDP_FQDN="${SHIB_IDP_HOSTNAME}"
+SHIB_IDP_SECRETS_PROPERTIES_FILE="${IDP_HOME}/credentials/secrets.properties"
+JAVA_HOME_ENV='/usr/lib/jvm/java-17-amazon-corretto'
+
+## GAAR Tutorial has some files help to configure our setup. 
+- we downloaded these files at the directory: `utils/DD-MM-YY-utils`
+
+# Using the server's actual IP is better, but for a local setup, loopback is fine.
+# The user can change this if needed.
+LOOP_IP_ADDRESS="127.0.1.1"
+IP_ADDRESS="192.168.4.220"
+
+
 
 > **Note:** You can update these versions by modifying the variables at the top of the `install_local_idp5_corrected.sh` script.
 
@@ -81,11 +100,8 @@ idp5-installer/
 │   ├── jetty-start.ini.txt
 │   ├── updateIDPsecrets.sh
 │   └── ...
-├── ldif_files/                              # Auto-generated LDAP directory files
-│   ├── ou-structure.ldif
-│   ├── idpuser.ldif
-│   ├── johnsmith.ldif
-│   ├── jacobdan.ldif
+├── utils/                   # Configuration templates and files cloned from the repo: [HOWTO guide provided by Consortium GARR](https://github.com/ConsortiumGARR/idem-tutorials/tree/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/utils)
+│   ├── YYYY-MM-DD-utils/
 │   └── ...
 └── README.md                                # This file
 ```
