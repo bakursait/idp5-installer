@@ -1,3 +1,10 @@
+# Important updates:
+## Update [15-12-2025]:
+- The main branch uses `Jetty-11` and other older documents (`wget` command to get those files) from the source we follow: [HOWTO guide provided by Consortium GARR](https://github.com/ConsortiumGARR/idem-tutorials/blob/master/idem-fedops/HOWTO-Shibboleth/Identity%20Provider/Debian-Ubuntu/HOWTO-Install-and-Configure-a-Shibboleth-IdP-v5.x-on-Debian-Ubuntu-Linux-with-Apache-%2B-Jetty.md).
+- Our branch: [jetty-12](https://github.com/bakursait/idp5-installer/tree/jetty-12) has solved this issue. all files up-to-date, up to the date of this announcement. so please consider review it first. 
+
+---
+
 # Shibboleth IdP v5 Automated Installer
 
 ---
