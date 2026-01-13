@@ -1,0 +1,11 @@
+dn: ou=system,dc=home,dc=lab
+objectClass: organizationalUnit
+ou: system
+
+dn: ou=people,dc=home,dc=lab
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=home,dc=lab
+objectClass: organizationalUnit
+ou: groups

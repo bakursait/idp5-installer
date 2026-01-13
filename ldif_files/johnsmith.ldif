@@ -1,0 +1,13 @@
+dn: uid=johnsmith,ou=people,dc=home,dc=lab
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+cn: John Smith
+sn: Smith
+uid: johnsmith
+uidNumber: 1001
+gidNumber: 1001
+homeDirectory: /home/johnsmith
+loginShell: /bin/bash
+userPassword: {SSHA}+ep/pWkIg77QX5RXwwbz3nQbqD3ajoXf
+mail: johnsmith@dc=home,dc=lab
